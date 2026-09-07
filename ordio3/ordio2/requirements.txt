@@ -1,0 +1,5 @@
+flask
+openai
+edge-tts
+requests
+youtube-transcript-api

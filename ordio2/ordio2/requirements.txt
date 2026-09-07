@@ -1,0 +1,4 @@
+flask
+openai
+edge-tts
+requests

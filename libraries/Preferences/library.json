@@ -1,0 +1,21 @@
+{
+  "name": "Preferences",
+  "version": "2.4.0",
+  "license": "MIT",
+  "description": "Preferences library for ESP8266, RP2040, Realtek Ameba and Particle Gen3. Compatible with ESP32 API.",
+  "keywords": "preferences, settings, storage, fs, filesystem",
+  "authors":
+  {
+    "name":  "Volodymyr Shymanskyy",
+    "url":   "https://github.com/vshymanskyy",
+    "maintainer": true
+  },
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/vshymanskyy/Preferences.git"
+  },
+  "homepage": "https://github.com/vshymanskyy/Preferences",
+  "frameworks": "arduino",
+  "platforms": ["espressif8266", "atmelsam", "raspberrypi"]
+}

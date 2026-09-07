@@ -1,0 +1,42 @@
+﻿# Environments
+venv/
+**/venv/
+.venv/
+env/
+ENV/
+
+# Python cache & bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Arduino & PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+build/
+*.hex
+*.bin
+*.elf
+*.o
+
+# Environment & Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

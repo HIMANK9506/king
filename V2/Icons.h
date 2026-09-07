@@ -1,0 +1,53 @@
+#ifndef ICONS_H
+#define ICONS_H
+
+
+#include <Arduino.h>
+
+
+
+const unsigned char batteryIcon[] PROGMEM =
+{
+
+0x7E,
+0x42,
+0x42,
+0x42,
+0x42,
+0x42,
+0x7E
+
+};
+
+
+
+const unsigned char heartIcon[] PROGMEM =
+{
+
+0x66,
+0xFF,
+0xFF,
+0x7E,
+0x3C,
+0x18
+
+};
+
+
+
+const unsigned char foodIcon[] PROGMEM =
+{
+
+0x18,
+0x3C,
+0x7E,
+0xFF,
+0x7E,
+0x3C,
+0x18
+
+};
+
+
+
+#endif

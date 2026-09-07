@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#030b11">
+  <title>ORDIO Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Michroma&family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #02080d;
+      --panel: rgba(3, 13, 20, .9);
+      --panel-strong: rgba(2, 10, 16, .96);
+      --line: rgba(31, 195, 226, .28);
+      --line-soft: rgba(29, 165, 194, .14);
+      --cyan: #22e7f1;
+      --cyan-2: #76eaff;
+      --blue: #0a9fd1;
+      --green: #10e992;
+      --amber: #ffbe32;
+      --muted: #7fa6b2;
+      --text: #e1fbff;
+      --shadow: 0 0 22px rgba(10, 193, 229, .09), inset 0 0 24px rgba(5, 136, 170, .025);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      overflow: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 50% 46%, rgba(0, 166, 211, .13), transparent 25%),
+        radial-gradient(circle at 50% 0, #07131d 0%, var(--bg) 48%, #010507 100%);
+      font-family: Rajdhani, Arial, sans-serif;
+    }
+
+    body::before {
+      position: fixed; inset: 0; z-index: -1; content: "";
+      pointer-events: none; opacity: .24;
+      background-image:
+        linear-gradient(rgba(14, 111, 133, .12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(14, 111, 133, .1) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse at center, black, transparent 76%);
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .app-shell {
+      position: relative; height: calc(100% - 24px); margin: 12px;
+      min-width: 980px; overflow: hidden;
+      border: 1px solid rgba(39, 220, 244, .45); border-radius: 18px;
+      background: linear-gradient(115deg, rgba(4, 15, 24, .92), rgba(1, 6, 10, .86));
+      box-shadow: 0 0 38px rgba(13, 221, 239, .07), inset 0 0 45px rgba(5, 137, 166, .04);
+    }
+    .app-shell::after {
+      position: absolute; inset: 0; content: ""; pointer-events: none;
+      background: linear-gradient(90deg, transparent 49.96%, rgba(44, 216, 240, .045) 50%, transparent 50.04%);
+    }
+
+    .topbar {
+      height: 88px; display: grid; grid-template-columns: 1fr auto 1fr;
+      align-items: center; padding: 0 28px 0 28px;
+      border-bottom: 1px solid var(--line-soft); position: relative; z-index: 2;
+      background: linear-gradient(180deg, rgba(5, 15, 22, .86), rgba(2, 9, 14, .34));
+    }
+    .brand { display: flex; align-items: center; gap: 18px; }
+    .brand-mark {
+      width: 42px; height: 42px; position: relative; border-radius: 50%;
+      background: radial-gradient(circle at 50% 45%, #1ef3f3 0 29%, #12bdcf 30% 50%, transparent 51%);
+      filter: drop-shadow(0 0 8px rgba(27, 232, 240, .7));
+    }
+    .brand-mark::before, .brand-mark::after {
+      content: ""; position: absolute; inset: 5px; border: 1px solid var(--cyan); border-radius: 50%;
+      clip-path: polygon(0 0, 55% 0, 100% 50%, 50% 100%, 0 43%);
+    }
+    .brand-mark::after { inset: -3px; opacity: .4; transform: rotate(70deg); }
+    .wordmark { font: 500 clamp(22px, 1.8vw, 32px)/1 Orbitron, sans-serif; letter-spacing: .19em; color: #9deeff; text-shadow: 0 0 10px rgba(50, 219, 241, .36); }
+    .tagline { margin-top: 5px; color: #8dacb7; font-size: 11px; letter-spacing: .1em; }
+    .clock { text-align: center; font-family: Orbitron, sans-serif; color: #baf6ff; font-size: 17px; letter-spacing: .04em; }
+    .clock small { display: block; margin-top: 7px; color: #84a2ad; font: 500 12px Rajdhani, sans-serif; letter-spacing: .07em; }
+    .header-actions { justify-self: end; display: flex; align-items: center; gap: 23px; }
+    .header-symbol { border: 0; background: transparent; color: #8ecbd7; font-size: 24px; cursor: pointer; transition: color .2s, text-shadow .2s; }
+    .header-symbol:hover { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+    .speed-toggle { padding: 6px 9px; border: 1px solid rgba(38, 217, 239, .42); border-radius: 5px; background: rgba(5, 42, 54, .46); color: #b9f8ff; cursor: pointer; font: 500 10px Orbitron, sans-serif; letter-spacing: .08em; transition: .2s; }
+    .speed-toggle.fast { color: #76fff1; border-color: rgba(33, 232, 203, .55); }
+    .speed-toggle.smart { color: #ffd878; border-color: rgba(255, 190, 50, .55); }
+    .speed-toggle:hover { filter: brightness(1.35); box-shadow: 0 0 9px rgba(43, 224, 239, .22); }
+    .system-status { text-align: right; min-width: 118px; font-family: Orbitron, sans-serif; }
+    .system-status span { display: block; color: #7fa4ae; font-size: 11px; letter-spacing: .08em; }
+    .system-status strong { display: block; margin-top: 4px; color: var(--green); font-size: 13px; letter-spacing: .09em; }
+    .status-ring { width: 37px; height: 37px; border: 3px solid #16d88a; border-radius: 50%; border-left-color: #0a3b44; transform: rotate(-35deg); box-shadow: 0 0 10px rgba(16, 233, 146, .35); }
+
+    .nav-rail {
+      position: absolute; z-index: 4; left: 0; top: 88px; bottom: 0; width: 76px;
+      display: flex; flex-direction: column; align-items: center; padding: 18px 0 20px;
+      border-right: 1px solid var(--line-soft); background: rgba(2, 9, 14, .72);
+    }
+    .nav-rail::after { content: ""; width: 1px; flex: 1; margin-top: 16px; background: linear-gradient(var(--line-soft), transparent); }
+    .nav-button {
+      position: relative; width: 48px; height: 48px; margin-bottom: 10px; border: 1px solid transparent; border-radius: 11px;
+      background: transparent; color: #95c5cf; cursor: pointer; font-size: 23px; transition: .2s;
+    }
+    .nav-button:hover, .nav-button.active { color: #91f4ff; border-color: rgba(32, 202, 230, .22); background: linear-gradient(135deg, rgba(19, 182, 211, .17), rgba(5, 27, 38, .4)); box-shadow: inset 0 0 16px rgba(12, 198, 226, .06); }
+    .nav-button.active::after { position: absolute; content: ""; right: -15px; top: 24px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    .nav-button[data-tip]::before { content: attr(data-tip); pointer-events: none; position: absolute; left: 68px; top: 17px; padding: 4px 8px; display: none; white-space: nowrap; border: 1px solid var(--line); border-radius: 4px; background: #06131c; color: #bcf5fa; font-size: 11px; letter-spacing: .05em; }
+    .nav-button:hover::before { display: block; }
+    .rail-connected { position: absolute; bottom: 20px; color: #79a4ac; font: 500 11px Orbitron, sans-serif; letter-spacing: .08em; white-space: nowrap; }
+    .rail-connected::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px var(--green); }
+
+    .dashboard {
+      position: absolute; z-index: 1; inset: 88px 0 0 76px;
+      display: grid; grid-template-columns: 315px minmax(390px, 1fr) 350px; gap: 16px; padding: 16px 14px 90px 16px;
+    }
+    .left-column, .right-column { min-height: 0; display: flex; flex-direction: column; gap: 18px; }
+    .panel {
+      position: relative; border: 1px solid rgba(17, 162, 190, .38); border-radius: 18px;
+      background: linear-gradient(135deg, rgba(4, 17, 26, .84), rgba(2, 9, 15, .68));
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+    .panel::before { content: ""; position: absolute; height: 1px; width: 74px; top: 49px; left: 24px; background: linear-gradient(90deg, var(--cyan), transparent); opacity: .42; }
+    .panel-heading { margin: 14px 20px 12px; color: #d5fbff; font: 500 14px Orbitron, sans-serif; letter-spacing: .04em; }
+
+    .monitor { flex: 1 1 auto; min-height: 400px; padding: 0 17px 13px; }
+    .monitor-grid { display: grid; gap: 8px; margin-top: 19px; }
+    .metric { display: grid; grid-template-columns: 64px 1fr 102px; gap: 10px; align-items: center; min-height: 61px; border-bottom: 1px solid rgba(35, 137, 157, .18); }
+    .metric:last-child { border-bottom: 0; }
+    .gauge {
+      --fill: 82deg; width: 53px; height: 53px; display: grid; place-items: center; border-radius: 50%;
+      background: conic-gradient(var(--cyan) var(--fill), #0b212c 0); position: relative; box-shadow: 0 0 10px rgba(15, 224, 231, .16);
+    }
+    .gauge::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: #06121a; }
+    .gauge span { position: relative; color: #d5f9fd; font: 500 11px Orbitron, sans-serif; }
+    .metric-label { color: #a8dbe2; font: 600 10px Orbitron, sans-serif; letter-spacing: .04em; }
+    .metric-value { margin-top: 4px; color: #ecfdff; font-size: 20px; line-height: .9; }
+    .metric-value small { color: #dffbff; font-size: 15px; }
+    .spark { width: 102px; height: 38px; opacity: .8; }
+    .spark polyline { fill: none; stroke: var(--cyan); stroke-width: 1.3; filter: drop-shadow(0 0 3px var(--cyan)); }
+    .spark path { fill: url(#fade); opacity: .18; }
+    .resource-stack { display: grid; gap: 7px; margin-top: 10px; }
+    .resource { padding: 7px 11px; display: grid; grid-template-columns: 24px 1fr; gap: 9px; border: 1px solid rgba(35, 135, 159, .28); border-radius: 10px; background: rgba(3, 13, 20, .68); }
+    .resource-icon { display: grid; place-items: center; color: var(--cyan); font-size: 21px; }
+    .resource-name { color: #b2dce2; font: 500 11px Orbitron, sans-serif; letter-spacing: .05em; }
+    .resource-value { margin: 3px 0 5px; color: #eefcff; font-size: 14px; }
+    .bar { height: 5px; overflow: hidden; border-radius: 4px; background: #102834; }
+    .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #16d2d4, #32e8ea); box-shadow: 0 0 7px rgba(37, 228, 231, .45); }
+
+    .music { flex: 0 0 138px; padding: 0 17px; }
+    .music-info { display: grid; grid-template-columns: 58px 1fr; gap: 11px; align-items: center; margin-top: 19px; }
+    .album-art { width: 58px; height: 58px; border-radius: 5px; background: radial-gradient(circle at 67% 26%, #f18658 0 2%, transparent 3%), linear-gradient(145deg, #2e1116, #7d2c1c 52%, #14080c); box-shadow: inset 0 0 28px rgba(0,0,0,.7); }
+    .track { font-size: 15px; line-height: 1.05; }
+    .artist { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    .player-controls { display: flex; gap: 28px; margin: 1px 0 0 84px; color: #66deed; font-size: 18px; }
+
+    .center-column { position: relative; min-height: 0; display: flex; flex-direction: column; align-items: center; }
+    .intro { position: relative; z-index: 2; margin-top: 1px; color: #c8f8ff; font-size: clamp(17px, 1.45vw, 21px); text-align: center; line-height: 1.1; text-shadow: 0 0 10px rgba(46, 216, 242, .25); }
+    .intro strong { font-weight: 600; }
+    .center-circuit { position: absolute; top: 78px; left: -60px; right: -60px; height: 390px; z-index: 0; opacity: .58; pointer-events: none; }
+    .orb-stage { position: relative; z-index: 1; width: min(30vw, 345px); aspect-ratio: 1; margin-top: 28px; display: grid; place-items: center; }
+    .orb-stage::before, .orb-stage::after { content: ""; position: absolute; width: 106%; height: 106%; border: 1px solid rgba(30, 213, 239, .4); border-radius: 50%; clip-path: polygon(0 38%, 19% 38%, 24% 31%, 42% 31%, 48% 20%, 52% 20%, 58% 31%, 76% 31%, 81% 38%, 100% 38%, 100% 62%, 81% 62%, 76% 69%, 58% 69%, 52% 80%, 48% 80%, 42% 69%, 24% 69%, 19% 62%, 0 62%); opacity: .5; }
+    .orb-stage::after { width: 87%; height: 87%; transform: rotate(30deg); border-color: #1eeaf2; opacity: .32; }
+    .orb-aura { position: absolute; width: 48%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(38, 245, 255, .36), rgba(0, 178, 219, .1) 38%, transparent 70%); filter: blur(13px); animation: aura-breathe 3.6s ease-in-out infinite; }
+    .orbit-trace { position: absolute; border: 1px solid rgba(61, 239, 248, .6); border-radius: 50%; pointer-events: none; }
+    .orbit-trace.one { width: 69%; height: 27%; transform: rotate(-26deg); border-left-color: transparent; border-right-color: transparent; animation: orbit-tilt-a 7s linear infinite; }
+    .orbit-trace.two { width: 78%; height: 36%; transform: rotate(47deg); border-top-color: transparent; border-bottom-color: transparent; opacity: .55; animation: orbit-tilt-b 11s linear infinite reverse; }
+    .orbit-trace.three { width: 58%; height: 73%; transform: rotate(18deg); border-left-color: transparent; opacity: .4; animation: orbit 9s linear infinite; }
+    .orb {
+      position: relative; width: 48%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%;
+      background:
+        radial-gradient(circle at 47% 42%, rgba(162, 255, 255, .93) 0 1%, rgba(55, 236, 244, .9) 2%, rgba(9, 142, 177, .75) 25%, rgba(2, 36, 55, .96) 54%, rgba(0, 9, 16, .98) 74%),
+        #042738;
+      box-shadow: 0 0 18px #17e6ee, 0 0 54px rgba(22, 218, 230, .52), inset 0 0 27px rgba(80, 255, 255, .7);
+      overflow: hidden; animation: core-pulse 3.6s ease-in-out infinite;
+    }
+    .orb::before { content: ""; position: absolute; inset: 5px; border-radius: inherit; background-image: radial-gradient(#b2ffff 1px, transparent 1.4px); background-size: 5px 5px; opacity: .58; mask-image: radial-gradient(circle at 48% 44%, black 15%, transparent 69%); }
+    .orb::after { content: ""; position: absolute; inset: -36%; border-radius: 50%; border: 2px solid #43f2ff; border-top-color: transparent; border-bottom-color: transparent; box-shadow: 0 0 9px rgba(35, 234, 246, .6); animation: orbit 8s linear infinite; }
+    .orb-grid { position: absolute; inset: 0; border-radius: inherit; opacity: .62; background: linear-gradient(90deg, transparent 49%, rgba(143,255,255,.42) 50%, transparent 51%), repeating-linear-gradient(0deg, transparent 0 8px, rgba(113,255,255,.24) 9px 10px), repeating-linear-gradient(90deg, transparent 0 11px, rgba(113,255,255,.15) 12px 13px); mask-image: radial-gradient(circle at center, black 5%, transparent 69%); animation: grid-turn 8s linear infinite; }
+    .scan-line { position: absolute; z-index: 1; top: -15%; left: 9%; right: 9%; height: 14%; border-bottom: 1px solid #a8ffff; background: linear-gradient(180deg, transparent, rgba(97, 255, 255, .23), transparent); box-shadow: 0 5px 13px rgba(51, 242, 255, .5); animation: scanner 3.2s ease-in-out infinite; }
+    .holo-arc { position: absolute; z-index: 2; width: 72%; height: 72%; border-radius: 50%; border: 2px solid transparent; border-top-color: #a4fcff; border-right-color: #25dce9; filter: drop-shadow(0 0 4px #17dfe9); animation: orbit 4.8s linear infinite; }
+    .holo-arc.reverse { width: 58%; height: 58%; border-top-color: transparent; border-bottom-color: #76faff; border-left-color: #20c8dd; animation-direction: reverse; animation-duration: 6.5s; }
+    .orb-label { position: relative; z-index: 2; font: 500 clamp(22px, 3vw, 41px) Orbitron, sans-serif; letter-spacing: .11em; color: #ecffff; text-shadow: 0 0 11px #1ae4ed; }
+    .ring, .ring::before, .ring::after { position: absolute; border: 2px solid rgba(47, 230, 242, .75); border-radius: 50%; }
+    .ring { width: 77%; height: 77%; border-left-color: transparent; border-right-color: transparent; animation: orbit 12s linear infinite reverse; box-shadow: 0 0 8px rgba(41, 222, 239, .26); }
+    .ring::before { content: ""; inset: -11%; border-width: 1px; border-top-color: transparent; border-bottom-color: transparent; animation: orbit 9s linear infinite; }
+    .ring::after { content: ""; inset: 13%; border-style: dashed; border-width: 1px; animation: orbit 14s linear infinite reverse; }
+    .orb-stage.thinking .orb { animation-duration: 1.2s; }
+    .orb-stage.listening .orb-label { color: #c8ffff; }
+    .orb-stage.listening .orb::after, .orb-stage.thinking .orb::after { animation-duration: 1.7s; }
+    @keyframes orbit { to { transform: rotate(360deg); } }
+    @keyframes orbit-tilt-a { to { transform: rotate(334deg); } }
+    @keyframes orbit-tilt-b { to { transform: rotate(407deg); } }
+    @keyframes grid-turn { to { transform: rotate(360deg) scale(1.12); } }
+    @keyframes core-pulse { 25% { transform: translateY(-2px) scale(1.025); } 50% { transform: translateY(1px) scale(1.055); filter: brightness(1.24); } 75% { transform: translateY(-1px) scale(1.02); } }
+    @keyframes aura-breathe { 50% { transform: scale(1.26); opacity: .78; } }
+    @keyframes scanner { 0%, 100% { transform: translateY(0); opacity: 0; } 15%, 76% { opacity: 1; } 76% { transform: translateY(240%); opacity: 0; } }
+    .listening-unit {
+      position: relative; z-index: 2; width: min(82%, 450px); min-height: 82px; margin-top: -9px; padding: 11px 30px 9px; text-align: center;
+      border: 1px solid rgba(28, 191, 220, .43); border-radius: 14px 14px 34px 34px; background: rgba(2, 13, 21, .68);
+      clip-path: polygon(5% 0, 95% 0, 100% 28%, 94% 100%, 6% 100%, 0 28%);
+    }
+    .listening-unit span { color: #d7fbff; font: 500 14px Orbitron, sans-serif; letter-spacing: .08em; }
+    .waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 34px; margin-top: 4px; }
+    .waveform i { width: 2px; height: 5px; background: #16e9ec; box-shadow: 0 0 4px #16e9ec; animation: wave 1.2s ease-in-out infinite; animation-play-state: paused; }
+    .waveform i:nth-child(3n) { height: 24px; animation-delay: -.3s; }
+    .waveform i:nth-child(4n) { height: 34px; animation-delay: -.8s; }
+    .waveform.active i { animation-play-state: running; }
+    @keyframes wave { 50% { transform: scaleY(.18); opacity: .44; } }
+
+    .chat-panel { position: absolute; z-index: 3; inset: 71px 5% 116px; overflow: auto; padding: 6px 13px 18px; scrollbar-width: thin; scrollbar-color: #128da5 transparent; pointer-events: none; }
+    .chat-panel.empty { display: none; }
+    .chat-log { display: flex; flex-direction: column; gap: 10px; }
+    .message { align-self: flex-start; max-width: 77%; padding: 9px 13px; border: 1px solid rgba(55, 198, 219, .27); border-radius: 5px 13px 13px; background: rgba(3, 17, 25, .9); box-shadow: 0 0 14px rgba(16, 201, 223, .07); color: #defaff; font-size: 17px; line-height: 1.28; pointer-events: auto; }
+    .message.user { align-self: flex-end; border-radius: 13px 5px 13px 13px; background: rgba(5, 47, 62, .85); }
+    .message-label { margin-bottom: 3px; color: #4be4ef; font: 500 10px Orbitron, sans-serif; letter-spacing: .09em; }
+    .message.user .message-label { color: #9edfe9; }
+    .message img { display: block; max-width: 230px; max-height: 130px; margin-top: 8px; border-radius: 6px; }
+    .response-meta { margin-top: 7px; color: #75b9c4; font: 500 9px Orbitron, sans-serif; letter-spacing: .06em; }
+
+    .tasks { flex: 0 0 220px; padding: 0 20px; }
+    .task-list, .command-list { list-style: none; margin: 14px 0 0; padding: 0; }
+    .task { display: grid; grid-template-columns: 29px 1fr auto; align-items: center; min-height: 36px; border-bottom: 1px solid rgba(29, 131, 151, .19); }
+    .task:last-child, .command:last-child { border-bottom: none; }
+    .task-icon { color: #69eafa; font-size: 18px; }
+    .task-name { color: #e5f9fb; font-size: 15px; }
+    .task-state { color: #7dc4d1; font-size: 12px; }
+    .task-state::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 5px rgba(29,225,240,.8); }
+    .task.waiting .task-state::before { background: var(--amber); }
+    .task.active .task-state::before { background: var(--green); }
+    .commands { flex: 0 0 202px; padding: 0 17px; }
+    .more { float: right; color: #55dce8; letter-spacing: .12em; }
+    .command { display: grid; grid-template-columns: 25px 1fr auto; align-items: center; min-height: 32px; padding: 0 7px; border-bottom: 1px solid rgba(29, 131, 151, .19); }
+    .command:nth-child(3) { border-radius: 5px; background: rgba(14, 80, 101, .3); }
+    .command-icon { color: #7ee9f5; }
+    .command-name { font-size: 14px; }
+    .command-time { color: #779aa5; font-size: 11px; }
+    .weather { flex: 1 1 auto; min-height: 200px; padding: 0 20px; }
+    .weather-now { display: grid; grid-template-columns: 55px 1fr auto; gap: 9px; align-items: center; margin-top: 21px; }
+    .weather-icon { font-size: 40px; color: #86e9f3; filter: drop-shadow(0 0 6px rgba(73,217,236,.42)); }
+    .temperature { font: 400 25px Orbitron, sans-serif; }
+    .condition { margin-top: 6px; font-size: 17px; }
+    .weather-details { color: #a0c3ca; font-size: 14px; line-height: 1.4; }
+    .forecast { display: flex; justify-content: space-between; margin-top: 25px; }
+    .forecast div { color: #83b0b8; font: 500 11px Orbitron, sans-serif; text-align: center; }
+    .forecast span { display: block; margin: 8px 0 5px; color: #91e7f0; font: 22px Rajdhani, sans-serif; }
+
+    .command-bar {
+      position: absolute; z-index: 5; height: 58px; bottom: 16px; left: 50%; width: min(52%, 650px); transform: translateX(-50%);
+      display: flex; align-items: center; padding: 6px 16px; gap: 12px; border: 1px solid rgba(25, 197, 227, .55); border-radius: 14px 25px 14px 25px;
+      background: linear-gradient(90deg, rgba(3, 20, 29, .98), rgba(2, 36, 49, .87)); box-shadow: 0 0 22px rgba(19, 204, 228, .13), inset 0 0 16px rgba(24, 204, 231, .06);
+    }
+    .command-bar::before, .command-bar::after { content: ""; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px var(--cyan); }
+    .command-bar::before { left: -5px; top: 19px; } .command-bar::after { right: -5px; bottom: 19px; }
+    .input-action, .mic-button, .send-button { flex: 0 0 auto; border: 0; background: transparent; cursor: pointer; color: #66e9f4; transition: .2s; }
+    .input-action { font-size: 27px; transform: rotate(180deg); }
+    .input-action:hover, .send-button:hover { color: #fff; text-shadow: 0 0 8px var(--cyan); }
+    #text-input { min-width: 0; flex: 1; border: 0; outline: none; background: transparent; color: #dffaff; font-size: 17px; letter-spacing: .02em; }
+    #text-input::placeholder { color: #79aebd; }
+    .mic-button { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid #34e8f1; border-radius: 50%; box-shadow: 0 0 12px rgba(20, 231, 241, .32); font-size: 20px; }
+    .mic-button.active { color: #fff; background: rgba(29, 229, 238, .19); box-shadow: 0 0 20px rgba(21, 234, 239, .75); }
+    .send-button { display: none; font-size: 19px; }
+    .stop-button { display: none; position: absolute; z-index: 7; right: 25px; bottom: 96px; padding: 7px 12px; border: 1px solid #f27575; border-radius: 6px; background: #251114; color: #ff9e9e; cursor: pointer; font: 500 11px Orbitron, sans-serif; letter-spacing: .08em; }
+    .stop-button.visible { display: block; }
+    .attach-preview { position: absolute; z-index: 6; display: none; align-items: center; gap: 7px; left: 50%; bottom: 93px; transform: translateX(-50%); padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: #06141d; font-size: 13px; }
+    .attach-preview img { width: 31px; height: 25px; object-fit: cover; border-radius: 3px; }
+    .attach-preview button { border: 0; background: transparent; color: #f98d8d; cursor: pointer; font-size: 17px; }
+    .footer { position: absolute; z-index: 4; bottom: 6px; left: 50%; transform: translateX(-50%); color: #719ba5; font: 500 10px Orbitron, sans-serif; letter-spacing: .08em; white-space: nowrap; }
+    .drawer {
+      position: absolute; z-index: 10; left: 99px; bottom: 86px; width: 330px; max-height: min(70vh, 560px); display: none; overflow: auto; padding: 16px;
+      border: 1px solid var(--line); border-radius: 12px; background: rgba(3, 15, 23, .98); box-shadow: 0 12px 36px rgba(0,0,0,.6), 0 0 18px rgba(22, 209, 234, .12);
+    }
+    .drawer.open { display: block; }
+    .drawer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; color: #d4f9fd; font: 500 13px Orbitron, sans-serif; letter-spacing: .05em; }
+    .drawer-close { border: 0; background: none; color: var(--cyan); cursor: pointer; font-size: 19px; }
+    .session-item { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 7px; background: rgba(5, 27, 37, .48); }
+    .session-item.active { border-color: rgba(36, 214, 238, .35); }
+    .session-title { flex: 1; min-width: 0; overflow: hidden; padding: 9px; border: 0; background: transparent; color: #d2eff2; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .session-delete { padding: 8px; border: 0; background: none; color: #8bb8c1; cursor: pointer; }
+    .session-delete:hover { color: #ff8c8c; }
+
+    @media (max-width: 1250px) {
+      .app-shell { min-width: 860px; }
+      .dashboard { grid-template-columns: 280px minmax(340px, 1fr) 305px; }
+      .metric { grid-template-columns: 67px 1fr; } .spark { display: none; }
+      .right-column { gap: 12px; } .weather-details { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <div class="wordmark">J.A.R.V.I.S</div>
+          <div class="tagline">JUST A RATHER VERY INTELLIGENT SYSTEM</div>
+        </div>
+      </div>
+      <div id="clock" class="clock">--:--<small>LOADING SYSTEM TIME</small></div>
+      <div class="header-actions">
+        <button id="speedToggle" class="speed-toggle fast" type="button" title="Fast replies. Click for Smart mode.">FAST</button>
+        <button class="header-symbol" id="settingsBtn" title="Settings" type="button">⚙</button>
+        <button class="header-symbol" title="Minimize" type="button">−</button>
+        <div class="system-status"><span>SYSTEM STATUS</span><strong id="statusText">ONLINE</strong></div>
+        <span id="statusDot" class="status-ring" aria-label="Online"></span>
+      </div>
+    </header>
+
+    <nav class="nav-rail" aria-label="Main navigation">
+      <button class="nav-button active" id="newChatBtn" data-tip="New chat" type="button">⌂</button>
+      <button class="nav-button" id="sessionToggle" data-tip="Chat history" type="button">◰</button>
+      <button class="nav-button" data-tip="System monitor" type="button">⌁</button>
+      <button class="nav-button" data-tip="Files" type="button">▱</button>
+      <button class="nav-button" data-tip="Network" type="button">◎</button>
+      <button class="nav-button" data-tip="Code" type="button">‹/›</button>
+      <button class="nav-button" data-tip="Messages" type="button">✉</button>
+      <div class="rail-connected">CONNECTED</div>
+    </nav>
+
+    <section class="dashboard">
+      <aside class="left-column">
+        <section class="panel monitor">
+          <h2 class="panel-heading">SYSTEM MONITOR</h2>
+          <div class="monitor-grid">
+            <div class="metric">
+              <div class="gauge" style="--fill:83deg"><span>CP%</span></div>
+              <div><div class="metric-label">CPU USAGE</div><div class="metric-value">23%</div></div>
+              <svg class="spark" viewBox="0 0 126 42" aria-hidden="true"><polyline points="0,35 11,30 19,32 29,24 39,29 51,18 61,25 75,19 85,24 98,23 108,15 116,17 126,4"/></svg>
+            </div>
+            <div class="metric">
+              <div class="gauge" style="--fill:148deg"><span>RA%</span></div>
+              <div><div class="metric-label">RAM USAGE</div><div class="metric-value">41%</div></div>
+              <svg class="spark" viewBox="0 0 126 42" aria-hidden="true"><polyline points="0,35 9,29 18,31 28,21 38,27 46,12 58,8 70,22 81,19 91,24 102,13 113,17 126,1"/></svg>
+            </div>
+            <div class="metric">
+              <div class="gauge" style="--fill:65deg"><span>GP%</span></div>
+              <div><div class="metric-label">GPU USAGE</div><div class="metric-value">18%</div></div>
+              <svg class="spark" viewBox="0 0 126 42" aria-hidden="true"><polyline points="0,34 10,29 21,30 32,20 42,26 51,17 63,15 75,23 86,18 96,21 106,15 116,17 126,4"/></svg>
+            </div>
+            <div class="metric">
+              <div class="gauge" style="--fill:115deg"><span>32%</span></div>
+              <div><div class="metric-label">NETWORK</div><div class="metric-value">32.6 <small>Mbps</small></div></div>
+              <svg class="spark" viewBox="0 0 126 42" aria-hidden="true"><polyline points="0,35 10,30 20,17 29,24 38,9 48,19 57,8 67,21 78,4 89,18 99,10 108,19 119,8 126,4"/></svg>
+            </div>
+          </div>
+          <div class="resource-stack">
+            <div class="resource"><div class="resource-icon">▯</div><div><div class="resource-name">DISK SPACE</div><div class="resource-value">256 GB / 512 GB</div><div class="bar"><i style="width:62%"></i></div></div></div>
+            <div class="resource"><div class="resource-icon">▣</div><div><div class="resource-name">BATTERY</div><div class="resource-value">78%</div><div class="bar"><i style="width:78%"></i></div></div></div>
+            <div class="resource"><div class="resource-icon">♨</div><div><div class="resource-name">TEMPERATURE</div><div class="resource-value">45°C</div><div class="bar"><i style="width:64%"></i></div></div></div>
+          </div>
+        </section>
+        <section class="panel music">
+          <h2 class="panel-heading">NOW PLAYING</h2>
+          <div class="music-info"><div class="album-art"></div><div><div class="track">The Night We Met</div><div class="artist">Lord Huron</div></div></div>
+          <div class="player-controls"><span>Ⅰ‹</span><span>Ⅱ</span><span>›Ⅰ</span></div>
+        </section>
+      </aside>
+
+      <section class="center-column">
+        <svg class="center-circuit" viewBox="0 0 800 460" preserveAspectRatio="none" aria-hidden="true">
+          <g fill="none" stroke="#10c7e0" stroke-opacity=".55" stroke-width="1">
+            <path d="M0 64 H110 L149 104 H270 M0 200 H82 L139 257 H255 M0 315 H90 L127 350 H245 M800 60 H677 L635 103 H524 M800 187 H713 L653 246 H542 M800 318 H695 L647 354 H539"/>
+            <path d="M57 0 V49 H144 L180 85 M745 0 V49 H658 L618 89 M103 460 V402 H178 L218 364 M697 460 V403 H620 L582 365"/>
+            <path d="M0 245 H160 M640 245 H800" stroke-opacity=".3"/>
+          </g>
+          <g fill="#2cebf5"><circle cx="110" cy="64" r="3"/><circle cx="139" cy="257" r="3"/><circle cx="90" cy="315" r="2.5"/><circle cx="677" cy="60" r="3"/><circle cx="653" cy="246" r="3"/><circle cx="647" cy="354" r="2.5"/></g>
+        </svg>
+        <div id="intro" class="intro"><strong>Good evening, Himank.</strong><br>How may I assist you today?</div>
+        <div id="orb" class="orb-stage">
+          <div class="orb-aura"></div>
+          <div class="orbit-trace one"></div>
+          <div class="orbit-trace two"></div>
+          <div class="orbit-trace three"></div>
+          <div class="ring"></div>
+          <div class="orb">
+            <div class="orb-grid"></div>
+            <div class="scan-line"></div>
+            <div class="holo-arc"></div>
+            <div class="holo-arc reverse"></div>
+            <span class="orb-label">JARVIS</span>
+          </div>
+        </div>
+        <div class="listening-unit"><span id="status">STANDING BY</span><div id="waveform" class="waveform"></div></div>
+        <div id="chatPanel" class="chat-panel empty" aria-live="polite"><div id="chat" class="chat-log"></div></div>
+      </section>
+
+      <aside class="right-column">
+        <section class="panel tasks">
+          <h2 class="panel-heading">ACTIVE TASKS</h2>
+          <ul class="task-list">
+            <li class="task"><span class="task-icon">◉</span><span class="task-name">System Scan</span><span class="task-state">In Progress</span></li>
+            <li class="task"><span class="task-icon">◎</span><span class="task-name">Web Search</span><span class="task-state">Ready</span></li>
+            <li class="task waiting"><span class="task-icon">▰</span><span class="task-name">File Organizer</span><span class="task-state">Waiting</span></li>
+            <li class="task active"><span class="task-icon">♫</span><span class="task-name">Music Player</span><span class="task-state">Playing</span></li>
+            <li class="task active"><span class="task-icon">AI</span><span class="task-name">AI Assistant</span><span class="task-state">Active</span></li>
+          </ul>
+        </section>
+        <section class="panel commands">
+          <h2 class="panel-heading">RECENT COMMANDS <span class="more">•••</span></h2>
+          <ul class="command-list" id="commandList">
+            <li class="command"><span class="command-icon">◯</span><span class="command-name">Open Chrome</span><time class="command-time">11:42 PM</time></li>
+            <li class="command"><span class="command-icon">♧</span><span class="command-name">Play lo-fi music</span><time class="command-time">11:43 PM</time></li>
+            <li class="command"><span class="command-icon">▱</span><span class="command-name">Show system status</span><time class="command-time">11:44 PM</time></li>
+            <li class="command"><span class="command-icon">⌕</span><span class="command-name">Search AI advancements</span><time class="command-time">11:44 PM</time></li>
+          </ul>
+        </section>
+        <section class="panel weather">
+          <h2 class="panel-heading">WEATHER UPDATE</h2>
+          <div class="weather-now"><div class="weather-icon">☔</div><div><div class="temperature">24°C</div><div class="condition">Light Rain</div></div><div class="weather-details">Humidity: 83%<br>Wind: 12 km/h<br>Feels like: 23°C</div></div>
+          <div class="forecast"><div>SAT<span>☔</span>25°/20°</div><div>SUN<span>☼</span>27°/21°</div><div>MON<span>☼</span>28°/22°</div><div>TUE<span>☼</span>29°/23°</div><div>WED<span>☼</span>30°/24°</div></div>
+        </section>
+      </aside>
+    </section>
+
+    <div id="attachPreview" class="attach-preview"><img id="attachThumb" alt="Attached preview"><span>IMAGE READY</span><button id="attachRemove" type="button" aria-label="Remove image">×</button></div>
+    <button id="stopBtn" class="stop-button" type="button">STOP RESPONSE</button>
+    <form id="commandForm" class="command-bar">
+      <button id="attachBtn" class="input-action" type="button" aria-label="Attach image" title="Attach image">⌁</button>
+      <input id="imageInput" type="file" accept="image/*" hidden>
+      <input id="text-input" autocomplete="off" placeholder="Ask me anything..." aria-label="Message to Ordio">
+      <button id="sendBtn" class="send-button" type="submit" aria-label="Send">➤</button>
+      <button id="micBtn" class="mic-button" type="button" aria-label="Use microphone" title="Use microphone">♩</button>
+    </form>
+    <div class="footer">ORDIO AI INTERFACE v2.1.0</div>
+
+    <section id="sessionDrawer" class="drawer" aria-label="Saved conversations">
+      <div class="drawer-head">SAVED CONVERSATIONS <button id="drawerClose" class="drawer-close" type="button">×</button></div>
+      <div id="sessionList"></div>
+    </section>
+  </main>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const chatPanel = document.getElementById('chatPanel');
+    const orb = document.getElementById('orb');
+    const waveform = document.getElementById('waveform');
+    const statusLabel = document.getElementById('status');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const textInput = document.getElementById('text-input');
+    const commandForm = document.getElementById('commandForm');
+    const micBtn = document.getElementById('micBtn');
+    const attachBtn = document.getElementById('attachBtn');
+    const imageInput = document.getElementById('imageInput');
+    const attachPreview = document.getElementById('attachPreview');
+    const attachThumb = document.getElementById('attachThumb');
+    const attachRemove = document.getElementById('attachRemove');
+    const stopBtn = document.getElementById('stopBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const sessionToggle = document.getElementById('sessionToggle');
+    const sessionDrawer = document.getElementById('sessionDrawer');
+    const drawerClose = document.getElementById('drawerClose');
+    const sessionListEl = document.getElementById('sessionList');
+    const modeOnlineBtn = document.getElementById('settingsBtn');
+    const speedToggle = document.getElementById('speedToggle');
+    const commandList = document.getElementById('commandList');
+
+    let currentSessionId = null;
+    let pendingImage = null;
+    let currentChatController = null;
+    let idleTimer = null;
+    let listening = false;
+    const IDLE_MS = 120000;
+    const audioPlayer = new Audio();
+    let speechQueue = [];
+    let speechPlaying = false;
+    let speechGeneration = 0;
+    let activeTtsController = null;
+    let activeSpeechResolve = null;
+
+    for (let i = 0; i < 73; i += 1) {
+      const bar = document.createElement('i');
+      bar.style.animationDelay = (-Math.random() * 1.2) + 's';
+      waveform.appendChild(bar);
+    }
+
+    function updateClock() {
+      const now = new Date();
+      let hour = now.getHours();
+      const minute = String(now.getMinutes()).padStart(2, '0');
+      const meridiem = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12 || 12;
+      const date = now.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+      document.getElementById('clock').innerHTML = hour + ':' + minute + ' ' + meridiem + '<small>' + date + '</small>';
+    }
+    updateClock();
+    setInterval(updateClock, 15000);
+
+    function setState(state) {
+      const copy = { standby: 'STANDING BY', listening: 'LISTENING...', thinking: 'PROCESSING...', speaking: 'SPEAKING...' };
+      orb.className = 'orb-stage ' + state;
+      statusLabel.textContent = copy[state] || copy.standby;
+      waveform.classList.toggle('active', state === 'listening' || state === 'speaking' || state === 'thinking');
+      stopBtn.classList.toggle('visible', state === 'thinking' || state === 'speaking');
+    }
+
+    function resetIdleTimer() {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(triggerProactive, IDLE_MS);
+    }
+
+    function noteCommand(text) {
+      if (!text) return;
+      const item = document.createElement('li');
+      item.className = 'command';
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      item.innerHTML = '<span class="command-icon">⌕</span><span class="command-name"></span><time class="command-time">' + time + '</time>';
+      item.querySelector('.command-name').textContent = text.length > 34 ? text.slice(0, 34) + '…' : text;
+      commandList.insertBefore(item, commandList.firstChild);
+      while (commandList.children.length > 4) commandList.removeChild(commandList.lastChild);
+    }
+
+    function addMessage(text, who, imageUrl) {
+      chatPanel.classList.remove('empty');
+      const message = document.createElement('article');
+      message.className = 'message ' + who;
+      const label = document.createElement('div');
+      label.className = 'message-label';
+      label.textContent = who === 'user' ? 'YOU' : 'ORDIO';
+      message.appendChild(label);
+      if (text) {
+        const content = document.createElement('div');
+        content.textContent = text;
+        message.appendChild(content);
+      }
+      if (imageUrl) {
+        const image = document.createElement('img');
+        image.src = imageUrl;
+        image.alt = 'Attached image';
+        message.appendChild(image);
+      }
+      chat.appendChild(message);
+      chatPanel.scrollTop = chatPanel.scrollHeight;
+      return message;
+    }
+
+    function addResponseTiming(container, firstTextMs, totalMs) {
+      const timing = document.createElement('div');
+      timing.className = 'response-meta';
+      const first = firstTextMs == null ? '—' : (firstTextMs / 1000).toFixed(1) + 's';
+      timing.textContent = 'FIRST TEXT ' + first + '  •  COMPLETE ' + (totalMs / 1000).toFixed(1) + 's';
+      container.appendChild(timing);
+    }
+
+    function clearAttachment() {
+      pendingImage = null;
+      imageInput.value = '';
+      attachPreview.style.display = 'none';
+      attachThumb.removeAttribute('src');
+    }
+
+    function cancelSpeech() {
+      speechGeneration += 1;
+      speechQueue = [];
+      if (activeTtsController) {
+        activeTtsController.abort();
+        activeTtsController = null;
+      }
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
+      const resolve = activeSpeechResolve;
+      activeSpeechResolve = null;
+      if (resolve) resolve();
+    }
+
+    function speak(text) {
+      const sentence = (text || '').trim();
+      if (!sentence) return;
+      speechQueue.push(sentence);
+      processSpeechQueue();
+    }
+
+    async function playSpeechSegment(text, generation) {
+      try {
+        setState('speaking');
+        const controller = new AbortController();
+        activeTtsController = controller;
+        const response = await fetch('/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text }),
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('TTS unavailable');
+        const blob = await response.blob();
+        if (generation !== speechGeneration) return;
+        const source = URL.createObjectURL(blob);
+        audioPlayer.src = source;
+        await new Promise(function (resolve) {
+          const finish = function () {
+            URL.revokeObjectURL(source);
+            if (activeSpeechResolve === finish) activeSpeechResolve = null;
+            resolve();
+          };
+          activeSpeechResolve = finish;
+          audioPlayer.onended = finish;
+          audioPlayer.onerror = finish;
+          audioPlayer.play().catch(finish);
+        });
+      } catch (error) {
+        // TTS is optional; streaming text remains usable if the voice service is unavailable.
+      } finally {
+        activeTtsController = null;
+      }
+    }
+
+    async function processSpeechQueue() {
+      if (speechPlaying || speechQueue.length === 0) return;
+      speechPlaying = true;
+      const generation = speechGeneration;
+      while (speechQueue.length && generation === speechGeneration) {
+        await playSpeechSegment(speechQueue.shift(), generation);
+      }
+      speechPlaying = false;
+      if (generation !== speechGeneration) return;
+      if (currentChatController) setState('thinking');
+      else setState('standby');
+      if (speechQueue.length) processSpeechQueue();
+    }
+
+    function queueSpeakableChunks(buffer) {
+      let pending = buffer;
+      while (pending.length) {
+        // Start speaking early at a natural pause. If the model uses a very
+        // long sentence, begin after roughly 90 characters instead.
+        const naturalBreak = pending.match(/^([\s\S]{24,}?[.!?;:])(?=\s|$)/);
+        if (naturalBreak) {
+          speak(naturalBreak[1]);
+          pending = pending.slice(naturalBreak[0].length).trimStart();
+          continue;
+        }
+        if (pending.length >= 90) {
+          const breakAt = pending.lastIndexOf(' ', 86);
+          if (breakAt > 24) {
+            speak(pending.slice(0, breakAt));
+            pending = pending.slice(breakAt + 1).trimStart();
+            continue;
+          }
+        }
+        break;
+      }
+      return pending;
+    }
+
+    function stopOrdio() {
+      if (currentChatController) {
+        currentChatController.abort();
+        currentChatController = null;
+      }
+      cancelSpeech();
+      setState('standby');
+    }
+    stopBtn.addEventListener('click', stopOrdio);
+
+    async function sendToOrdio(text) {
+      stopOrdio();
+      const image = pendingImage;
+      if (!text && !image) return;
+      addMessage(text || 'Analyze this image', 'user', image);
+      noteCommand(text || 'Analyze image');
+      clearAttachment();
+      setState('thinking');
+      resetIdleTimer();
+      const reply = addMessage('', 'ordio');
+      const responseText = document.createElement('div');
+      reply.appendChild(responseText);
+      currentChatController = new AbortController();
+      const requestStarted = performance.now();
+      let firstTextMs = null;
+      let fullText = '';
+      let sentenceBuffer = '';
+      try {
+        const response = await fetch('/chat_stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, image: image, session_id: currentSessionId }),
+          signal: currentChatController.signal
+        });
+        if (!response.ok || !response.body) {
+          const error = await response.json().catch(function () { return {}; });
+          throw new Error(error.error || 'The assistant did not return a response.');
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          const chunkText = decoder.decode(chunk.value, { stream: true });
+          if (chunkText && firstTextMs === null) firstTextMs = performance.now() - requestStarted;
+          fullText += chunkText;
+          sentenceBuffer = queueSpeakableChunks(sentenceBuffer + chunkText);
+          responseText.textContent = fullText.replace('[[ORDIO_ERROR]]', '');
+          chatPanel.scrollTop = chatPanel.scrollHeight;
+        }
+        currentChatController = null;
+        if (fullText.includes('[[ORDIO_ERROR]]')) {
+          responseText.textContent = 'I encountered an error: ' + fullText.split('[[ORDIO_ERROR]]').slice(1).join('');
+          cancelSpeech();
+          setState('standby');
+        } else {
+          if (sentenceBuffer.trim()) speak(sentenceBuffer);
+          addResponseTiming(reply, firstTextMs, performance.now() - requestStarted);
+          refreshSessionList();
+          if (!speechQueue.length && !speechPlaying) setState('standby');
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          responseText.textContent = 'I could not reach the assistant. Confirm that app.py is running and try again.';
+        }
+        currentChatController = null;
+        setState('standby');
+      }
+    }
+
+    async function generateImage(prompt) {
+      addMessage('/image ' + prompt, 'user');
+      noteCommand('Generate image: ' + prompt);
+      setState('thinking');
+      try {
+        const response = await fetch('/generate_image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: prompt }) });
+        const data = await response.json();
+        if (data.error) addMessage('Image generation failed: ' + data.error, 'ordio');
+        else addMessage('Image generated.', 'ordio', 'data:image/png;base64,' + data.image);
+      } catch (error) {
+        addMessage('I could not reach the image generation service.', 'ordio');
+      }
+      setState('standby');
+    }
+
+    async function summarizeLink(url) {
+      addMessage(url, 'user');
+      noteCommand('Summarize link');
+      setState('thinking');
+      try {
+        const response = await fetch('/summarize_link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url, session_id: currentSessionId }) });
+        const data = await response.json();
+        if (data.error) { addMessage(data.error, 'ordio'); setState('standby'); }
+        else { addMessage(data.reply, 'ordio'); refreshSessionList(); speak(data.reply); }
+      } catch (error) {
+        addMessage('I could not retrieve that link.', 'ordio');
+        setState('standby');
+      }
+    }
+
+    async function triggerProactive() {
+      if (!currentSessionId || currentChatController || listening) return;
+      setState('thinking');
+      try {
+        const response = await fetch('/proactive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: currentSessionId }) });
+        const data = await response.json();
+        if (data.reply) { addMessage(data.reply, 'ordio'); speak(data.reply); }
+        else setState('standby');
+      } catch (error) {
+        setState('standby');
+      }
+      resetIdleTimer();
+    }
+
+    async function refreshSessionList() {
+      try {
+        const response = await fetch('/sessions');
+        const sessions = await response.json();
+        sessionListEl.innerHTML = '';
+        sessions.forEach(function (session) {
+          const item = document.createElement('div');
+          item.className = 'session-item' + (session.id === currentSessionId ? ' active' : '');
+          const title = document.createElement('button');
+          title.className = 'session-title';
+          title.textContent = session.title || 'New Chat';
+          title.addEventListener('click', function () { loadSession(session.id); });
+          const remove = document.createElement('button');
+          remove.className = 'session-delete';
+          remove.type = 'button';
+          remove.title = 'Delete conversation';
+          remove.textContent = '×';
+          remove.addEventListener('click', async function () {
+            if (!confirm('Delete this conversation?')) return;
+            await fetch('/sessions/' + session.id, { method: 'DELETE' });
+            if (session.id === currentSessionId) await startNewChat();
+            else refreshSessionList();
+          });
+          item.append(title, remove);
+          sessionListEl.appendChild(item);
+        });
+      } catch (error) {
+        sessionListEl.textContent = 'Chat history is unavailable.';
+      }
+    }
+
+    async function loadSession(id) {
+      stopOrdio();
+      currentSessionId = id;
+      chat.innerHTML = '';
+      try {
+        const response = await fetch('/sessions/' + id + '/messages');
+        const messages = await response.json();
+        if (messages.length) {
+          messages.forEach(function (message) { addMessage(message.content, message.role === 'user' ? 'user' : 'ordio', message.image); });
+        } else {
+          chatPanel.classList.add('empty');
+        }
+      } catch (error) {
+        addMessage('I could not load this conversation.', 'ordio');
+      }
+      sessionDrawer.classList.remove('open');
+      refreshSessionList();
+    }
+
+    async function startNewChat() {
+      stopOrdio();
+      try {
+        const response = await fetch('/sessions', { method: 'POST' });
+        const session = await response.json();
+        currentSessionId = session.id;
+      } catch (error) {
+        currentSessionId = null;
+      }
+      chat.innerHTML = '';
+      chatPanel.classList.add('empty');
+      clearAttachment();
+      refreshSessionList();
+      resetIdleTimer();
+    }
+
+    async function setMode(mode) {
+      statusText.textContent = mode === 'online' ? 'ONLINE' : 'OFFLINE';
+      statusText.style.color = mode === 'online' ? 'var(--green)' : 'var(--amber)';
+      statusDot.style.borderColor = mode === 'online' ? '#16d88a' : '#ffbe32';
+      try {
+        await fetch('/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: mode }) });
+      } catch (error) {}
+    }
+
+    async function setSpeed(speed) {
+      speedToggle.textContent = speed === 'fast' ? 'FAST' : 'SMART';
+      speedToggle.className = 'speed-toggle ' + speed;
+      speedToggle.title = speed === 'fast' ? 'Fast replies. Click for Smart mode.' : 'Smart answers. Click for Fast mode.';
+      try {
+        await fetch('/speed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ speed: speed }) });
+      } catch (error) {}
+    }
+
+    commandForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      const text = textInput.value.trim();
+      if (!text && !pendingImage) return;
+      textInput.value = '';
+      if (text.startsWith('/image ')) generateImage(text.slice(7).trim());
+      else if (/^https?:\/\/\S+$/i.test(text) && !pendingImage) summarizeLink(text);
+      else sendToOrdio(text);
+    });
+    textInput.addEventListener('input', resetIdleTimer);
+    attachBtn.addEventListener('click', function () { imageInput.click(); });
+    imageInput.addEventListener('change', function () {
+      const file = imageInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        pendingImage = event.target.result;
+        attachThumb.src = pendingImage;
+        attachPreview.style.display = 'flex';
+      };
+      reader.readAsDataURL(file);
+    });
+    attachRemove.addEventListener('click', clearAttachment);
+    newChatBtn.addEventListener('click', startNewChat);
+    sessionToggle.addEventListener('click', function () { sessionDrawer.classList.toggle('open'); refreshSessionList(); });
+    drawerClose.addEventListener('click', function () { sessionDrawer.classList.remove('open'); });
+    modeOnlineBtn.addEventListener('click', function () { setMode(statusText.textContent === 'ONLINE' ? 'offline' : 'online'); });
+    speedToggle.addEventListener('click', function () { setSpeed(speedToggle.classList.contains('fast') ? 'smart' : 'fast'); });
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+      recognition.onstart = function () { listening = true; micBtn.classList.add('active'); setState('listening'); };
+      recognition.onresult = function (event) { const text = event.results[0][0].transcript.trim(); if (text) sendToOrdio(text); };
+      recognition.onerror = function (event) { if (event.error !== 'aborted') addMessage('Microphone error: ' + event.error + '.', 'ordio'); };
+      recognition.onend = function () { listening = false; micBtn.classList.remove('active'); if (!currentChatController) setState('standby'); resetIdleTimer(); };
+      micBtn.addEventListener('click', async function () {
+        if (listening) { recognition.stop(); return; }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(function (track) { track.stop(); });
+          recognition.start();
+        } catch (error) {
+          addMessage('Microphone access is blocked. Check this page’s microphone permission.', 'ordio');
+        }
+      });
+    } else {
+      micBtn.addEventListener('click', function () { addMessage('Voice input is not supported by this browser. Please use Chrome.', 'ordio'); });
+    }
+
+    setState('standby');
+    startNewChat();
+    setSpeed('fast');
+  </script>
+</body>
+</html>
