@@ -1,0 +1,27 @@
+# MediaMTX Configuration for RTSP to WebRTC Translation
+# Per Image 3 Dev 1 specifications
+
+api: yes
+apiAddress: :9997
+
+metrics: no
+
+# RTSP Server
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp]
+
+# WebRTC (WHEP) for Zero-Latency in Browser
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+
+# Path mappings
+paths:
+  # Primary surveillance camera mapping
+  cam01:
+    # Set to your CCTV camera's RTSP URL
+    # source: rtsp://admin:password@192.168.1.100:554/stream1
+    # For local loopback or streaming from OpenCV backend:
+    source: publisher
+    sourceOnDemand: no

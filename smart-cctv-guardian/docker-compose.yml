@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # Media Server (MediaMTX) - RTSP to WebRTC translation (Image 3)
+  media-server:
+    image: bluenviron/mediamtx:latest
+    container_name: cctv_mediamtx
+    restart: unless-stopped
+    ports:
+      - "8554:8554" # RTSP
+      - "8889:8889" # WebRTC / WHEP
+      - "9997:9997" # API
+    volumes:
+      - ./media-server/mediamtx.yml:/mediamtx.yml
+
+  # Detection Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cctv_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/snapshots:/app/snapshots
+    environment:
+      - CAMERA_SOURCE=0
+      - DETECTION_CONFIDENCE=0.50
+      - MIN_CONSECUTIVE_PRESENCE_SEC=2.0
+      - ALERT_COOLDOWN_SEC=30.0

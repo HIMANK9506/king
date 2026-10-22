@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pt
+*.onnx
+backend/models/
+backend/data/
+backend/snapshots/*.jpg
+!backend/snapshots/.gitkeep
+
+# Node
+node_modules/
+dist/
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
