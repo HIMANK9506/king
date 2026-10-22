@@ -1,102 +1,85 @@
-# 🛡️ Smart CCTV Guardian — AI Surveillance & Intruder Detection System
+# 🛡️ Smart CCTV Guardian — AI 4-Channel NVR & Threat Suppression System
 
-An edge-native, real-time AI security surveillance system built with **FastAPI**, **Ultralytics YOLOv8**, **OpenCV**, and a responsive **React (Vite) + Tailwind CSS** dashboard.
+An edge-native, real-time AI security surveillance station built with **FastAPI**, **Ultralytics YOLOv8 Tracking & Pose**, **YuNet/SFace Face Recognition**, **OpenCV**, and a tactical **React (Vite) + Tailwind CSS** dashboard.
 
-Designed following the exact architecture specified by the Research, Design, and Development teams:
-- **Dev 1 (Backend, CV & Streaming):** YOLOv8 Nano edge inference, 2-second temporal presence false-positive filtering, camera stream manager (Webcam, Synthetic CCTV, or RTSP), and automated Gmail alert dispatch with high-res intruder snapshots.
-- **Dev 2 (Frontend & App Integration):** High-alert responsive dashboard, low-latency live video player, armed/disarmed system state controls, incident evidence drawer, and Progressive Web App (PWA) configuration.
+Designed to operate in **3 distinct deployment modes**:
+1. **🖥️ PC Desktop Software App** (Launched via `.bat` or native Electron executable)
+2. **📱 Native-Style Mobile App** (Dedicated smartphone layout, quick actions, touch controls, and PWA/Capacitor shell)
+3. **🌐 Web-Based Station** (Connects any CCTV or camera remotely via **IP address** and **Unique Verification Code**)
 
 ---
 
-## 🏗️ Architecture Overview
+## 🌟 The 3 Ways to Run & Connect
 
-```text
-               ┌────────────────────────────────────────────────────────┐
-               │              CAMERA INPUT LAYER                        │
-               │  • Webcam index (0, 1)                                 │
-               │  • RTSP CCTV Feed (rtsp://admin:pass@ip:port/stream)   │
-               │  • Synthetic Demo Stream (Built-in simulator)          │
-               └──────────────────────────┬─────────────────────────────┘
-                                          │
-                                          ▼
-               ┌────────────────────────────────────────────────────────┐
-               │           BACKEND CV ENGINE (FastAPI + OpenCV)         │
-               │  • Background Thread Frame Capture                     │
-               │  • YOLOv8 Nano Inference (person class, conf >= 0.50)  │
-               │  • Temporal Filter Rule: Continuous Presence >= 2.0s   │
-               │  • System State: ARMED, DISARMED, NIGHT_MODE           │
-               └──────────────┬───────────────────────────┬─────────────┘
-                              │                           │
-                              ▼                           ▼
-        ┌───────────────────────────────┐   ┌───────────────────────────┐
-        │        ALERT SERVICE          │   │      STREAMING & API      │
-        │ • Capture annotated snapshot  │   │ • Low-latency MJPEG feed  │
-        │ • aiosmtplib async Gmail SMTP │   │ • REST endpoints          │
-        │ • Cooldown throttling (30s)   │   │ • WebSocket real-time HUD │
-        └───────────────────────────────┘   └─────────────┬─────────────┘
-                                                          │
-                                                          ▼
-                                            ┌───────────────────────────┐
-                                            │     REACT + VITE PWA      │
-                                            │ • Live Video Player & HUD │
-                                            │ • Mode Toggle Controls    │
-                                            │ • Incident Evidence Drawer│
-                                            │ • Config Modal            │
-                                            └───────────────────────────┘
+### Way 1: 🖥️ Desktop Software App (BAT / EXE Launcher)
+Double-click either launcher in the project root:
+- **`Launch-Desktop-App.bat`**: Auto-detects the backend, starts AI streaming in background if needed, and launches the dedicated native Windows desktop window.
+- **`SmartCCTVGuardian.bat`**: Master terminal launcher with interactive menu (Start Desktop, Full System, Stop Services, Push to GitHub).
+- **`run-desktop-app.bat`**: Launches Electron directly using the compiled production build.
+
+### Way 2: 📱 Mobile App (Smartphone & Tablet Touchscreen Interface)
+- **Dedicated Mobile View:** Open on any mobile phone or toggle **"Mobile View"** in the top bar. Automatically adapts to a native mobile app layout (matching CCTV mobile stations):
+  - **Header:** Live system beacon, Armed/Night/Disarm mode pills, active threat banner.
+  - **Quick Action Pills:** `All Feeds`, `CAM 01`, `CAM 02`, `CAM 03`, `CAM 04`, `+ Connect IP Cam`.
+  - **Swipeable Camera Cards:** Each camera has high-res live video, OSD bitrate/timestamp, snapshot capture, live recording, and camera mirror toggle.
+  - **Bottom Mobile Navigation:** `Devices`, `Alerts`, `Connect`, and `Rules`.
+- **Install as Native PWA / Android App:** Click the **Install** button or add to phone home screen. Also includes `capacitor.config.json` for compiling native Android APKs via Android Studio.
+
+### Way 3: 🌐 Website-Based System (Connect CCTV via IP & Unique Code)
+Access the system in any modern web browser (`http://localhost:5173` or `http://<local_ip>:5173`):
+- **Connect External IP / CCTV Cameras:**
+  - Click **"📡 Connect Cam"** in the header or the **Connect** tab on mobile.
+  - Enter the **Camera IP Address** (e.g. `192.168.1.120`), **Port** (e.g. `554`), and **Unique Camera Code / Password**.
+  - Choose stream protocol (**RTSP**, **HTTP/MJPEG**, or **Direct Stream URL**).
+  - Assign to any NVR channel (**CAM 01**, **CAM 02**, **CAM 03**, or **CAM 04**).
+  - Built-in OpenCV probe tests handshake and verifies active video frames with 1-click binding.
+- **NVR Station Unique Pair Code:**
+  - Every station generates a persistent unique security code (e.g. `GRD-4212-BC38`).
+  - Remote web clients or mobile devices can enter the IP + code to authorize remote access without cloud fees.
+
+---
+
+## 🎛️ 4-Channel NVR Interface (Matching Wireframe)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ HEADER: Brand | System Mode (Armed / Night / Disarm) | Connect IP Cam | Mobile View | Resident Whitelist        │
+├─────────────────────────────────────────────────────────────────┬───────────────────────────────────────────────┤
+│                                                                 │ ┌───────────────────────────────────────────┐ │
+│                       MAIN CAMERA STAGE                         │ │ LOGS: Real-Time Event & AI Threat Stream  │ │
+│   - Large focused live feed (High-FPS zero-buffer)              │ │ (Intrusion alerts, Pose changes, Breaches)│ │
+│   - Upper-Right: Bitrate (e.g. 297 KB/s) + Monospace Clock      │ └───────────────────────────────────────────┘ │
+│   - Upper-Left: [CAM 01] Channel Tag + Resolution               │ ┌──────────────────────┬────────────────────┐ │
+│   - Tactical HUD: REC, Snapshot, Mirror Flip, Fullscreen        │ │ SNAPSHOTS & RECORDS  │ CONTROLS & RULES   │ │
+│                                                                 │ │                      │                    │ │
+├─────────────────────────────────────────────────────────────────┤ │ - Intruder photo     │ - Zone & Tripwire  │ │
+│ SUB-STREAMS THUMBNAIL ROW (v1, v2, v3)                          │ │   evidence gallery   │   toggle switches  │ │
+│   - Live mini thumbnails of remaining 3 cameras                 │ │ - Recorded video     │ - Pose detection   │ │
+│   - 1-Click to promote any camera to Main Stage                 │ │   clips archive      │   sensitivity      │ │
+│   - [⊞ 4-Cam Grid Mode Toggle]: Switches into 2x2 NVR screen    │ │ - Download / Player  │ - Resident status  │ │
+└─────────────────────────────────────────────────────────────────┴─┴──────────────────────┴────────────────────┘─┘
 ```
 
 ---
 
-## ⚡ Quickstart Guide
+## ⚡ Quickstart Commands
 
-### 1. Prerequisites
-- Python 3.10+
-- Node.js 18+ and npm
-
-### 2. Backend Setup (Dev 1)
-```bash
-cd backend
-# Activate virtual environment
-.\venv\Scripts\activate
-
-# Launch the FastAPI Surveillance Server
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+### Start All Services (PC & Web):
+```bat
+start-all.bat
 ```
-- API Docs: `http://localhost:8000/docs`
-- Live Video Feed: `http://localhost:8000/api/feed`
-- Status Endpoint: `http://localhost:8000/api/status`
 
-### 3. Frontend Setup (Dev 2)
-```bash
-cd frontend
-# Install dependencies (if not already done)
-npm install
-
-# Start Vite Development Server
-npm run dev
+### Start Desktop App Only:
+```bat
+Launch-Desktop-App.bat
 ```
-- Open `http://localhost:5173` in your browser.
 
----
+### Stop All Services:
+```bat
+stop-all.bat
+```
 
-## 📋 Features Aligned with Team Requirements
-
-| Feature | Requirement Source | Implementation Details |
-| :--- | :--- | :--- |
-| **Camera Compatibility & RTSP** | Research Team | Supports standard RTSP URLs (`rtsp://user:pass@ip:port/stream`), local webcams, and synthetic test fallback. |
-| **Edge vs. Cloud Evaluation** | Research Team | Ultra-low latency edge inference (~15ms on CPU) with YOLOv8 Nano (`yolov8n.pt`), avoiding expensive cloud streaming fees. |
-| **False-Positive Reduction** | Research Team | Only triggers an intrusion alert when human presence persists for **$\ge 2.0$ consecutive seconds**, eliminating pet/shadow glitches. |
-| **System State Controls** | Design Team | Interactive state controls for **Armed** (full alert), **Disarmed** (safe monitoring), and **Night Mode** (perimeter warning). |
-| **Alert & Log Interface** | Design Team | Dedicated incident archive drawer with exact timestamps, detection confidence, and full-resolution snapshot previews. |
-| **Intruder Detection Engine** | Dev 1 | YOLOv8 Nano loaded with OpenCV to detect person classes in video frames with bounding boxes and HUD metadata. |
-| **Email Alert Service** | Dev 1 | Asynchronous non-blocking Gmail SMTP alerts via `aiosmtplib` with attached intruder JPEG snapshots and alert cooldown timer. |
-| **Responsive Web App** | Dev 2 | Built with React, Vite, Tailwind CSS, and Lucide Icons, responsive across desktop, tablets, and phones. |
-| **PWA Configuration** | Dev 2 | Configured with `manifest.json` and service worker hooks to install as a native-like software app on desktop and mobile. |
-
----
-
-## 🛠️ Testing Without Physical CCTV Cameras
-If you don't have an RTSP CCTV camera connected:
-1. The system defaults to your **Laptop Webcam** (`0`).
-2. If no webcam is available or if selected in settings, the system switches to **Synthetic Feed Mode**, which generates an animated security room with a moving test silhouette so you can test YOLOv8 detection, temporal filters, and snapshot capture immediately!
-3. You can also click the **"Test Alert"** button in the dashboard to immediately test snapshot generation and email dispatch.
+### Push to GitHub:
+```bat
+push_to_github.bat
+```

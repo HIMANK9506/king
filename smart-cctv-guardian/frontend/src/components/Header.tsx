@@ -11,7 +11,8 @@ import {
   Film,
   UserCheck,
   Smartphone,
-  Download
+  Download,
+  Wifi
 } from 'lucide-react';
 import { SystemMode } from '../types';
 
@@ -30,6 +31,8 @@ interface HeaderProps {
   onOpenMobilePair: () => void;
   installPrompt?: any;
   onInstallApp?: () => void;
+  onOpenConnectCamera?: () => void;
+  onToggleMobileView?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,6 +50,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenMobilePair,
   installPrompt,
   onInstallApp,
+  onOpenConnectCamera,
+  onToggleMobileView,
 }) => {
   return (
     <header className="border-b border-neutral-800 bg-neutral-900/95 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-3.5 transition-colors">
@@ -168,15 +173,29 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Mobile & PC App Multi-Platform Trigger */}
-          <button
-            onClick={onOpenMobilePair}
-            className="flex items-center gap-1.5 px-3 py-2 text-blue-300 hover:text-white bg-blue-950/40 hover:bg-blue-900/50 border border-blue-800/80 rounded-xl text-xs font-semibold transition"
-            title="Open on Mobile Phone or PC Desktop"
-          >
-            <Smartphone size={16} className="text-blue-400" />
-            <span className="hidden sm:inline">Mobile App</span>
-          </button>
+          {/* Connect IP / CCTV Camera via IP & Code (Way 3) */}
+          {onOpenConnectCamera && (
+            <button
+              onClick={onOpenConnectCamera}
+              className="flex items-center gap-1.5 px-3 py-2 text-cyan-300 hover:text-white bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-800/80 rounded-xl text-xs font-semibold transition"
+              title="Connect External CCTV Camera using IP & Unique Code"
+            >
+              <Wifi size={15} className="text-cyan-400" />
+              <span className="hidden sm:inline">Connect Cam</span>
+            </button>
+          )}
+
+          {/* Toggle Dedicated Mobile App View (Way 2) */}
+          {onToggleMobileView && (
+            <button
+              onClick={onToggleMobileView}
+              className="flex items-center gap-1.5 px-3 py-2 text-amber-300 hover:text-white bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/80 rounded-xl text-xs font-semibold transition"
+              title="Toggle Native-Style Mobile Smartphone View"
+            >
+              <Smartphone size={15} className="text-amber-400" />
+              <span className="hidden sm:inline">Mobile View</span>
+            </button>
+          )}
 
           {/* Direct PWA Install Prompt Button (if browser supports install) */}
           {installPrompt && onInstallApp && (

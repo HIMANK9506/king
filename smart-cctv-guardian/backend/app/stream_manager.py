@@ -8,6 +8,7 @@ from app.config import config
 from app.models import SystemMode, CameraChannelInfo
 from app.detector import IntruderDetector
 from app.alerts import alert_service
+from app.camera_network import camera_network_manager
 
 class StreamManager:
     def __init__(self):
@@ -92,6 +93,10 @@ class StreamManager:
             return jpeg
         return self.get_jpeg_frame()
 
+    def reload_channel(self, cam_id: int):
+        if cam_id == 1:
+            self.source_changed = True
+
     def get_cameras_info(self) -> List[CameraChannelInfo]:
         bitrate_cam1 = 285 + (self.frame_id % 32)
         bitrate_cam2 = 308 + ((self.channel_frame_ids[2] * 3) % 27)
@@ -100,46 +105,57 @@ class StreamManager:
 
         is_breached = self.person_in_frame and self.active_presence_sec >= 2.0 and (self.system_mode in [SystemMode.ARMED, SystemMode.NIGHT_MODE])
 
-        return [
-            CameraChannelInfo(
-                id=1,
-                name=f"CAM 01 - {config.CAMERA_NAME}",
-                location="Main Gate / Primary AI",
-                status="ONLINE" if self.is_connected else "CONNECTING",
-                bitrate_kbps=bitrate_cam1,
-                fps=self.current_fps,
-                active_breach=is_breached
-            ),
-            CameraChannelInfo(
-                id=2,
-                name="CAM 02 - Backyard Perimeter",
-                location="Perimeter Fence Line",
-                status="ONLINE",
-                bitrate_kbps=bitrate_cam2,
-                fps=15.0,
-                active_breach=False
-            ),
-            CameraChannelInfo(
-                id=3,
-                name="CAM 03 - Front Porch / Entry",
-                location="Doorway & Walkway",
-                status="ONLINE",
-                bitrate_kbps=bitrate_cam3,
-                fps=15.0,
-                active_breach=False
-            ),
-            CameraChannelInfo(
-                id=4,
-                name="CAM 04 - Driveway & Street",
-                location="Vehicle Access & Road",
-                status="ONLINE",
-                bitrate_kbps=bitrate_cam4,
-                fps=15.0,
-                active_breach=False
+        default_names = {
+            1: (f"CAM 01 - {config.CAMERA_NAME}", "Main Gate / Primary AI"),
+            2: ("CAM 02 - Backyard Perimeter", "Perimeter Fence Line"),
+            3: ("CAM 03 - Front Porch / Entry", "Doorway & Walkway"),
+            4: ("CAM 04 - Driveway & Street", "Vehicle Access & Road"),
+        }
+
+        infos = []
+        for cid in [1, 2, 3, 4]:
+            cfg = camera_network_manager.get_channel_config(cid)
+            if cfg and cfg.get("camera_name"):
+                cname = f"CAM 0{cid} - {cfg['camera_name']}"
+                loc = f"IP: {cfg.get('ip_address')}:{cfg.get('port', 554)} ({cfg.get('protocol', 'RTSP')})"
+            else:
+                cname, loc = default_names[cid]
+
+            bitrate = {
+                1: bitrate_cam1,
+                2: bitrate_cam2,
+                3: bitrate_cam3,
+                4: bitrate_cam4,
+            }[cid]
+
+            infos.append(
+                CameraChannelInfo(
+                    id=cid,
+                    name=cname,
+                    location=loc,
+                    status="ONLINE" if (cid != 1 or self.is_connected) else "CONNECTING",
+                    bitrate_kbps=bitrate,
+                    fps=self.current_fps if cid == 1 else 15.0,
+                    active_breach=(cid == 1 and is_breached)
+                )
             )
-        ]
+        return infos
 
     def _open_capture(self):
+        # 0. Check if channel 1 has an IP camera bound via IP + Unique Code
+        cfg1 = camera_network_manager.get_channel_config(1)
+        if cfg1 and cfg1.get("stream_url"):
+            try:
+                cap = cv2.VideoCapture(cfg1["stream_url"])
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        return cap
+                    cap.release()
+            except Exception as e:
+                print(f"[StreamManager] Failed to connect to configured IP camera for Cam 1: {e}")
+
         src = config.CAMERA_SOURCE.strip()
         if src.upper() == "SIMULATED":
             return None

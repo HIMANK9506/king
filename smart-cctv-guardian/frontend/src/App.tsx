@@ -9,6 +9,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { FaceWhitelistModal } from './components/FaceWhitelistModal';
 import { MobilePairModal } from './components/MobilePairModal';
+import { ConnectCameraModal } from './components/ConnectCameraModal';
+import { MobileView } from './components/MobileView';
 import {
   SystemMode,
   SystemStatus,
@@ -42,6 +44,12 @@ export default function App() {
   // Multi-Cam NVR State (Matching User Wireframe & Ref Images)
   const [activeCamId, setActiveCamId] = useState<number>(1);
   const [isGridView, setIsGridView] = useState<boolean>(false);
+
+  // 3-Way System State (Software Desktop / Mobile App / Web Remote IP Connect)
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState<boolean>(false);
+  const [isMobileViewMode, setIsMobileViewMode] = useState<boolean>(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
 
   useEffect(() => {
     const handleBeforeInstall = (e: any) => {
@@ -248,133 +256,160 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
-      {/* Top Navbar */}
-      <Header
-        mode={mode}
-        onModeChange={handleModeChange}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        isConnected={status?.is_connected || false}
-        activeBreach={!!isBreached}
-        soundEnabled={soundEnabled}
-        onToggleSound={handleToggleSound}
-        recordingsCount={recordings.length}
-        onOpenRecordings={() => {
-          if (recordings.length > 0) {
-            setSelectedRecording(recordings[0]);
-          }
-        }}
-        authorizedFacesCount={enrolledFaces.length}
-        onOpenFacesModal={() => setIsFacesOpen(true)}
-        onOpenMobilePair={() => setIsMobilePairOpen(true)}
-        installPrompt={deferredPrompt}
-        onInstallApp={handleInstallApp}
-      />
-
-      {/* Main Content Layout */}
-      <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 flex-1 flex flex-col gap-5">
-        {/* Top Telemetry Metrics Bar */}
-        <MetricsBar
+      {isMobileViewMode ? (
+        <MobileView
           status={status}
-          totalIncidents={incidents.length}
+          mode={mode}
+          onModeChange={handleModeChange}
+          incidents={incidents}
+          recordings={recordings}
+          cameras={status?.cameras || []}
+          mirrorFeed={mirrorFeed}
+          onToggleMirror={handleToggleMirror}
+          onNewRecording={handleNewRecording}
+          onSelectSnapshot={setSelectedSnapshot}
+          onSelectRecording={setSelectedRecording}
+          onDeleteRecording={handleDeleteRecording}
+          onTriggerTestAlert={handleTriggerTestAlert}
+          isTriggeringTest={isTriggeringTest}
+          onOpenConnectModal={() => setIsConnectModalOpen(true)}
           onOpenFacesModal={() => setIsFacesOpen(true)}
+          onSaveRules={handleSaveRules}
+          onSwitchToDesktop={() => setIsMobileViewMode(false)}
         />
+      ) : (
+        <>
+          {/* Top Navbar */}
+          <Header
+            mode={mode}
+            onModeChange={handleModeChange}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            isConnected={status?.is_connected || false}
+            activeBreach={!!isBreached}
+            soundEnabled={soundEnabled}
+            onToggleSound={handleToggleSound}
+            recordingsCount={recordings.length}
+            onOpenRecordings={() => {
+              if (recordings.length > 0) {
+                setSelectedRecording(recordings[0]);
+              }
+            }}
+            authorizedFacesCount={enrolledFaces.length}
+            onOpenFacesModal={() => setIsFacesOpen(true)}
+            onOpenMobilePair={() => setIsMobilePairOpen(true)}
+            installPrompt={deferredPrompt}
+            onInstallApp={handleInstallApp}
+            onOpenConnectCamera={() => setIsConnectModalOpen(true)}
+            onToggleMobileView={() => setIsMobileViewMode(true)}
+          />
 
-        {/* 2-Column NVR Workspace (Matching User Wireframe) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 items-start">
-          {/* ============================================================ */}
-          {/* LEFT COLUMN: Main Camera Stage + v1, v2, v3 Sub-Streams */}
-          {/* (Or 4-Camera Synchronous 2x2 Grid View) */}
-          {/* ============================================================ */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
-            {isGridView ? (
-              <FourCamGrid
-                cameras={status?.cameras || []}
-                onSelectCamera={(id) => {
-                  setActiveCamId(id);
-                  setIsGridView(false);
-                }}
-                onExitGridView={() => setIsGridView(false)}
-                personInFrame={status?.person_in_frame || false}
-                activePresenceSec={status?.active_presence_sec || 0}
-                isAlarmTriggered={!!isBreached}
-              />
-            ) : (
-              <>
-                {/* 1. Focused Main Camera Stage */}
-                <MainCameraStage
-                  activeCamId={activeCamId}
-                  activeCamName={activeCamName}
-                  mode={mode}
-                  fps={activeCamId === 1 ? status?.fps || 30 : 15}
-                  activePresenceSec={activeCamId === 1 ? status?.active_presence_sec || 0 : 0}
-                  personInFrame={activeCamId === 1 ? status?.person_in_frame || false : false}
-                  mirrorFeed={mirrorFeed}
-                  onToggleMirror={handleToggleMirror}
-                  onNewRecording={handleNewRecording}
-                  heldItems={activeCamId === 1 ? status?.detected_held_items || [] : []}
-                  onToggleGridView={() => setIsGridView(true)}
-                  onSelectSnapshot={setSelectedSnapshot}
-                  bitrateKbps={activeCamBitrate}
-                />
-
-                {/* 2. Sub-Streams Row: v1, v2, v3 */}
-                <CameraThumbnailRow
-                  activeCamId={activeCamId}
-                  cameras={status?.cameras || []}
-                  onSelectCamera={(id) => setActiveCamId(id)}
-                  onToggleGridView={() => setIsGridView(true)}
-                />
-              </>
-            )}
-
-            {/* Tactical Status Guidance Strip */}
-            <div className="p-3 bg-neutral-900/60 border border-neutral-800 rounded-xl flex flex-wrap items-center justify-between text-xs text-neutral-400 gap-2">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Channel Selected: <strong className="text-white">CAM 0{activeCamId}</strong>
-              </span>
-              <span className="flex items-center gap-1">
-                <Radio size={13} className="text-cyan-400" />
-                Network Mode:{' '}
-                <strong className="text-neutral-200">
-                  {isGridView ? '4-Channel Synchronous NVR' : 'Focused Stage + 3 Sub-Streams'}
-                </strong>
-              </span>
-              <span>
-                Tripwire: <strong className="text-neutral-200">{status?.rules?.boundary?.enabled ? 'Active' : 'Disabled'}</strong>
-              </span>
-              <span>
-                Zone: <strong className="text-neutral-200">{status?.rules?.zone?.enabled ? 'Armed' : 'Disabled'}</strong>
-              </span>
-              <span>
-                Residents: <strong className="text-emerald-400">{enrolledFaces.length} Authorized</strong>
-              </span>
-            </div>
-          </div>
-
-          {/* ============================================================ */}
-          {/* RIGHT COLUMN: Wireframe Tri-Section Station */}
-          {/* Top: LOGs | Bottom-Left: Snapshots | Bottom-Right: Controls */}
-          {/* ============================================================ */}
-          <div className="lg:col-span-4 h-full">
-            <RightStation
-              incidents={incidents}
-              recordings={recordings}
-              onSelectSnapshot={setSelectedSnapshot}
-              onSelectRecording={setSelectedRecording}
-              onDeleteRecording={handleDeleteRecording}
-              onTriggerTestAlert={handleTriggerTestAlert}
-              isTriggeringTest={isTriggeringTest}
-              rules={status?.rules}
-              onSaveRules={handleSaveRules}
-              mode={mode}
-              onModeChange={handleModeChange}
-              authorizedFacesCount={enrolledFaces.length}
+          {/* Main Content Layout */}
+          <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 flex-1 flex flex-col gap-5">
+            {/* Top Telemetry Metrics Bar */}
+            <MetricsBar
+              status={status}
+              totalIncidents={incidents.length}
               onOpenFacesModal={() => setIsFacesOpen(true)}
             />
-          </div>
-        </div>
-      </main>
+
+            {/* 2-Column NVR Workspace (Matching User Wireframe) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 items-start">
+              {/* ============================================================ */}
+              {/* LEFT COLUMN: Main Camera Stage + v1, v2, v3 Sub-Streams */}
+              {/* (Or 4-Camera Synchronous 2x2 Grid View) */}
+              {/* ============================================================ */}
+              <div className="lg:col-span-8 flex flex-col gap-4">
+                {isGridView ? (
+                  <FourCamGrid
+                    cameras={status?.cameras || []}
+                    onSelectCamera={(id) => {
+                      setActiveCamId(id);
+                      setIsGridView(false);
+                    }}
+                    onExitGridView={() => setIsGridView(false)}
+                    personInFrame={status?.person_in_frame || false}
+                    activePresenceSec={status?.active_presence_sec || 0}
+                    isAlarmTriggered={!!isBreached}
+                  />
+                ) : (
+                  <>
+                    {/* 1. Focused Main Camera Stage */}
+                    <MainCameraStage
+                      activeCamId={activeCamId}
+                      activeCamName={activeCamName}
+                      mode={mode}
+                      fps={activeCamId === 1 ? status?.fps || 30 : 15}
+                      activePresenceSec={activeCamId === 1 ? status?.active_presence_sec || 0 : 0}
+                      personInFrame={activeCamId === 1 ? status?.person_in_frame || false : false}
+                      mirrorFeed={mirrorFeed}
+                      onToggleMirror={handleToggleMirror}
+                      onNewRecording={handleNewRecording}
+                      heldItems={activeCamId === 1 ? status?.detected_held_items || [] : []}
+                      onToggleGridView={() => setIsGridView(true)}
+                      onSelectSnapshot={setSelectedSnapshot}
+                      bitrateKbps={activeCamBitrate}
+                    />
+
+                    {/* 2. Sub-Streams Row: v1, v2, v3 */}
+                    <CameraThumbnailRow
+                      activeCamId={activeCamId}
+                      cameras={status?.cameras || []}
+                      onSelectCamera={(id) => setActiveCamId(id)}
+                      onToggleGridView={() => setIsGridView(true)}
+                    />
+                  </>
+                )}
+
+                {/* Tactical Status Guidance Strip */}
+                <div className="p-3 bg-neutral-900/60 border border-neutral-800 rounded-xl flex flex-wrap items-center justify-between text-xs text-neutral-400 gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Channel Selected: <strong className="text-white">CAM 0{activeCamId}</strong>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Radio size={13} className="text-cyan-400" />
+                    Network Mode:{' '}
+                    <strong className="text-neutral-200">
+                      {isGridView ? '4-Channel Synchronous NVR' : 'Focused Stage + 3 Sub-Streams'}
+                    </strong>
+                  </span>
+                  <span>
+                    Tripwire: <strong className="text-neutral-200">{status?.rules?.boundary?.enabled ? 'Active' : 'Disabled'}</strong>
+                  </span>
+                  <span>
+                    Zone: <strong className="text-neutral-200">{status?.rules?.zone?.enabled ? 'Armed' : 'Disabled'}</strong>
+                  </span>
+                  <span>
+                    Residents: <strong className="text-emerald-400">{enrolledFaces.length} Authorized</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* ============================================================ */}
+              {/* RIGHT COLUMN: Wireframe Tri-Section Station */}
+              {/* Top: LOGs | Bottom-Left: Snapshots | Bottom-Right: Controls */}
+              {/* ============================================================ */}
+              <div className="lg:col-span-4 h-full">
+                <RightStation
+                  incidents={incidents}
+                  recordings={recordings}
+                  onSelectSnapshot={setSelectedSnapshot}
+                  onSelectRecording={setSelectedRecording}
+                  onDeleteRecording={handleDeleteRecording}
+                  onTriggerTestAlert={handleTriggerTestAlert}
+                  isTriggeringTest={isTriggeringTest}
+                  rules={status?.rules}
+                  onSaveRules={handleSaveRules}
+                  mode={mode}
+                  onModeChange={handleModeChange}
+                  authorizedFacesCount={enrolledFaces.length}
+                  onOpenFacesModal={() => setIsFacesOpen(true)}
+                />
+              </div>
+            </div>
+          </main>
+        </>
+      )}
 
       {/* Snapshot Evidence Modal */}
       {selectedSnapshot && (
@@ -458,6 +493,14 @@ export default function App() {
         mobileUrl={status?.mobile_app_url || ''}
         installPrompt={deferredPrompt}
         onInstallApp={handleInstallApp}
+      />
+
+      {/* Connect CCTV / External Camera Modal via IP & Unique Code (Way 3) */}
+      <ConnectCameraModal
+        isOpen={isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        cameras={status?.cameras || []}
+        onCameraConnected={pollBackend}
       />
     </div>
   );

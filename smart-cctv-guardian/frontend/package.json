@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "desktop": "electron electron/main.cjs"
+    "desktop": "electron electron/main.cjs",
+    "desktop:dist": "npm run build && electron electron/main.cjs",
+    "mobile:preview": "vite --host"
   },
   "dependencies": {
     "clsx": "^2.1.0",

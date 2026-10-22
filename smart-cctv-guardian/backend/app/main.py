@@ -21,12 +21,18 @@ from app.models import (
     EventType,
     EventSeverity,
     EnrolledFaceRecord,
-    FaceEnrollRequest
+    FaceEnrollRequest,
+    CameraConnectRequest,
+    CameraConnectResponse,
+    SystemDeviceCodeInfo,
+    CodeVerificationRequest,
+    CodeVerificationResponse
 )
 from app.detector import IntruderDetector
 from app.alerts import alert_service
 from app.stream_manager import stream_manager
 from app.advanced_ai import advanced_face_manager, FACES_DIR
+from app.camera_network import camera_network_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -242,6 +248,64 @@ async def trigger_test_alert(event_type: EventType = Query(EventType.ZONE_INTRUS
         return {"status": "success", "incident": incident}
     else:
         return {"status": "cooldown_active", "message": "Alert cooldown active (wait 15s)"}
+
+# ============================================================
+# CAMERA NETWORK & UNIQUE CODE CONNECTION ENDPOINTS (WAY 3)
+# ============================================================
+@app.get("/api/system/device-code", response_model=SystemDeviceCodeInfo, summary="Get NVR Unique Security Connection Code")
+def get_device_code_info():
+    local_ip = get_local_ip()
+    return SystemDeviceCodeInfo(
+        device_id=camera_network_manager.device_info.get("device_id", "0000"),
+        device_code=camera_network_manager.get_device_code(),
+        local_ip=local_ip,
+        web_url=f"http://{local_ip}:5173",
+        active_channels=4,
+        created_at=camera_network_manager.device_info.get("created_at", "")
+    )
+
+@app.post("/api/system/verify-code", response_model=CodeVerificationResponse, summary="Verify Unique Security Pair Code")
+def verify_device_pair_code(body: CodeVerificationRequest):
+    is_valid = camera_network_manager.verify_code(body.code)
+    if is_valid:
+        return CodeVerificationResponse(
+            verified=True,
+            message="Unique Device Code Verified! Remote Station Connection Authorized."
+        )
+    return CodeVerificationResponse(
+        verified=False,
+        message="Invalid Unique Device Code. Check the code displayed on your Guardian Station."
+    )
+
+@app.post("/api/cameras/connect", response_model=CameraConnectResponse, summary="Connect CCTV/IP Camera via IP & Unique Code")
+def connect_camera_by_ip_code(body: CameraConnectRequest):
+    is_valid, stream_url, message = camera_network_manager.bind_camera_to_channel(
+        channel_id=body.channel_id,
+        ip_address=body.ip_address,
+        port=body.port,
+        unique_code=body.unique_code,
+        camera_name=body.camera_name,
+        protocol=body.protocol,
+        stream_path=body.stream_path,
+        username=body.username or "admin"
+    )
+
+    # Signal stream manager to reload stream for this channel
+    stream_manager.reload_channel(body.channel_id)
+
+    return CameraConnectResponse(
+        success=is_valid,
+        channel_id=body.channel_id,
+        camera_name=body.camera_name,
+        stream_url=stream_url,
+        message=message
+    )
+
+@app.post("/api/cameras/disconnect/{channel_id}", summary="Reset Channel to Default Stream")
+def disconnect_camera_channel(channel_id: int):
+    camera_network_manager.unbind_channel(channel_id)
+    stream_manager.reload_channel(channel_id)
+    return {"status": "success", "channel_id": channel_id, "message": "Channel reset to default stream"}
 
 if __name__ == "__main__":
     import uvicorn

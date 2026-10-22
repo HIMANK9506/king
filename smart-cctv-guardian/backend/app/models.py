@@ -122,3 +122,35 @@ class EmailConfigUpdate(BaseModel):
     sender_email: Optional[str] = None
     sender_app_password: Optional[str] = None
     recipient_email: Optional[str] = None
+
+class CameraConnectRequest(BaseModel):
+    channel_id: int = Field(default=1, ge=1, le=4)
+    ip_address: str
+    port: int = 554
+    unique_code: str # Unique Device Code or Security Verification Password
+    camera_name: str
+    protocol: str = "RTSP" # RTSP, HTTP_MJPEG, CUSTOM
+    stream_path: Optional[str] = None
+    username: Optional[str] = "admin"
+
+class CameraConnectResponse(BaseModel):
+    success: bool
+    channel_id: int
+    camera_name: str
+    stream_url: str
+    message: str
+
+class SystemDeviceCodeInfo(BaseModel):
+    device_id: str
+    device_code: str
+    local_ip: str
+    web_url: str
+    active_channels: int = 4
+    created_at: str
+
+class CodeVerificationRequest(BaseModel):
+    code: str
+
+class CodeVerificationResponse(BaseModel):
+    verified: bool
+    message: str

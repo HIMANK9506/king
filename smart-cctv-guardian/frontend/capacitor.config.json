@@ -1,0 +1,9 @@
+{
+  "appId": "com.smartcctv.guardian",
+  "appName": "Smart CCTV Guardian",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  }
+}

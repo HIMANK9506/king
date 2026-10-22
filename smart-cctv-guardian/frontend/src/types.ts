@@ -110,3 +110,31 @@ export interface VideoRecordingItem {
   triggerEvent?: string;
   sizeBytes: number;
 }
+
+export interface CameraConnectRequest {
+  channel_id: number;
+  ip_address: string;
+  port: number;
+  unique_code: string;
+  camera_name: string;
+  protocol: 'RTSP' | 'HTTP_MJPEG' | 'CUSTOM';
+  stream_path?: string;
+  username?: string;
+}
+
+export interface CameraConnectResponse {
+  success: boolean;
+  channel_id: number;
+  camera_name: string;
+  stream_url: string;
+  message: string;
+}
+
+export interface SystemDeviceCodeInfo {
+  device_id: string;
+  device_code: string;
+  local_ip: string;
+  web_url: string;
+  active_channels: number;
+  created_at: string;
+}
