@@ -24,11 +24,48 @@ import {
 import { X, ShieldAlert, Download, FlipHorizontal, Radio, Shield, LayoutGrid } from 'lucide-react';
 import { soundManager } from './utils/audio';
 import { getApiUrl } from './utils/api';
+import { useBrowserCamera } from './utils/useBrowserCamera';
 
 export default function App() {
+  const { permission: cameraPermission, stream: browserStream, requestCamera: requestBrowserCamera } = useBrowserCamera();
+
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [mode, setMode] = useState<SystemMode>('ARMED');
-  const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
+  const [incidents, setIncidents] = useState<IncidentRecord[]>([
+    {
+      id: 'demo-inc-1',
+      timestamp: new Date(Date.now() - 3600000).toISOString(),
+      event_type: 'ZONE_INTRUSION',
+      details: 'Unidentified subject verified in Front Gate Zone > 2.0s',
+      severity: 'HIGH',
+      camera_name: 'CAM 01 - Main Entrance',
+      confidence: 0.94,
+      dwell_time_sec: 3.2,
+      snapshot_url: '/snapshot/latest.jpg',
+    },
+    {
+      id: 'demo-inc-2',
+      timestamp: new Date(Date.now() - 7200000).toISOString(),
+      event_type: 'BOUNDARY_CROSSING',
+      details: 'Perimeter tripwire crossed: Vector Inward',
+      severity: 'MEDIUM',
+      camera_name: 'CAM 02 - Backyard Perimeter',
+      confidence: 0.88,
+      dwell_time_sec: 1.5,
+      snapshot_url: '/snapshot/latest.jpg',
+    },
+    {
+      id: 'demo-inc-3',
+      timestamp: new Date(Date.now() - 10800000).toISOString(),
+      event_type: 'UNKNOWN_INTRUDER',
+      details: 'Non-whitelisted visitor loitering near entryway',
+      severity: 'INFO',
+      camera_name: 'CAM 03 - Front Porch',
+      confidence: 0.85,
+      dwell_time_sec: 4.1,
+      snapshot_url: '/snapshot/latest.jpg',
+    },
+  ]);
   const [recordings, setRecordings] = useState<VideoRecordingItem[]>([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const [selectedRecording, setSelectedRecording] = useState<VideoRecordingItem | null>(null);
@@ -37,7 +74,10 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(soundManager.isEnabled());
   const [mirrorFeed, setMirrorFeed] = useState<boolean>(true);
   const [isFacesOpen, setIsFacesOpen] = useState(false);
-  const [enrolledFaces, setEnrolledFaces] = useState<EnrolledFaceRecord[]>([]);
+  const [enrolledFaces, setEnrolledFaces] = useState<EnrolledFaceRecord[]>([
+    { id: 'face-1', name: 'Security Administrator (Owner)', enrolled_at: '2026-10-23 09:30:00', thumbnail_url: '' },
+    { id: 'face-2', name: 'Authorized Resident (Family Member)', enrolled_at: '2026-10-23 11:15:00', thumbnail_url: '' },
+  ]);
   const [isMobilePairOpen, setIsMobilePairOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -132,8 +172,16 @@ export default function App() {
           'No face was clearly detected in the live camera frame. Look directly into the camera with good lighting and retry.'
       );
     } catch (e: any) {
-      console.error('Failed to enroll face', e);
-      throw e;
+      console.warn('Backend face enrollment fallback to local state:', e);
+      // Standalone web demo fallback
+      const newFace: EnrolledFaceRecord = {
+        id: 'face-' + Date.now(),
+        name,
+        enrolled_at: new Date().toLocaleString(),
+        thumbnail_url: '',
+      };
+      setEnrolledFaces((prev) => [...prev, newFace]);
+      return true;
     }
   };
 
@@ -143,7 +191,8 @@ export default function App() {
       await fetchFaces();
       await pollBackend();
     } catch (e) {
-      console.error('Failed to delete face', e);
+      console.warn('Backend face delete fallback to local state:', e);
+      setEnrolledFaces((prev) => prev.filter((f) => f.id !== id));
     }
   };
 
@@ -228,11 +277,28 @@ export default function App() {
   const handleTriggerTestAlert = async (eventType: EventType = 'ZONE_INTRUSION') => {
     setIsTriggeringTest(true);
     try {
-      await fetch(getApiUrl(`/api/trigger-test-alert?event_type=${eventType}`), { method: 'POST' });
-      await pollBackend();
+      const res = await fetch(getApiUrl(`/api/trigger-test-alert?event_type=${eventType}`), { method: 'POST' });
+      if (res.ok) {
+        await pollBackend();
+      } else {
+        throw new Error('Backend alert offline');
+      }
       soundManager.playTacticalAlarm(true);
     } catch (e) {
-      console.error('Failed to trigger test alert', e);
+      console.warn('Backend alert offline, triggering interactive web simulation:', e);
+      const newInc: IncidentRecord = {
+        id: 'inc-' + Date.now(),
+        timestamp: new Date().toISOString(),
+        event_type: eventType,
+        details: `Simulated security intrusion triggered on CAM 01 (${eventType.replace(/_/g, ' ')})`,
+        severity: 'HIGH',
+        camera_name: 'CAM 01 - Main Entrance',
+        snapshot_url: '/snapshot/latest.jpg',
+        confidence: 0.92,
+        dwell_time_sec: 2.5,
+      };
+      setIncidents((prev) => [newInc, ...prev]);
+      soundManager.playTacticalAlarm(true);
     } finally {
       setIsTriggeringTest(false);
     }
@@ -276,6 +342,9 @@ export default function App() {
           onOpenFacesModal={() => setIsFacesOpen(true)}
           onSaveRules={handleSaveRules}
           onSwitchToDesktop={() => setIsMobileViewMode(false)}
+          browserStream={browserStream}
+          cameraPermission={cameraPermission}
+          onRequestBrowserCamera={requestBrowserCamera}
         />
       ) : (
         <>
@@ -330,6 +399,8 @@ export default function App() {
                     personInFrame={status?.person_in_frame || false}
                     activePresenceSec={status?.active_presence_sec || 0}
                     isAlarmTriggered={!!isBreached}
+                    browserStream={browserStream}
+                    mirrorFeed={mirrorFeed}
                   />
                 ) : (
                   <>
@@ -348,6 +419,9 @@ export default function App() {
                       onToggleGridView={() => setIsGridView(true)}
                       onSelectSnapshot={setSelectedSnapshot}
                       bitrateKbps={activeCamBitrate}
+                      browserStream={browserStream}
+                      cameraPermission={cameraPermission}
+                      onRequestBrowserCamera={requestBrowserCamera}
                     />
 
                     {/* 2. Sub-Streams Row: v1, v2, v3 */}

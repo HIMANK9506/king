@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LayoutGrid, ArrowUpRight, Radio, Shield } from 'lucide-react';
 import { CameraChannelInfo } from '../types';
 import { getApiUrl } from '../utils/api';
+import { VirtualCctvCanvas } from '../utils/virtualCanvas';
 
 interface CameraThumbnailRowProps {
   activeCamId: number;
@@ -9,6 +10,64 @@ interface CameraThumbnailRowProps {
   onSelectCamera: (id: number) => void;
   onToggleGridView: () => void;
 }
+
+const SubCamItem: React.FC<{
+  cam: CameraChannelInfo;
+  wireframeTag: string;
+  onSelect: () => void;
+}> = ({ cam, wireframeTag, onSelect }) => {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div
+      onClick={onSelect}
+      className="group relative rounded-xl overflow-hidden border border-neutral-800 hover:border-cyan-500/70 bg-neutral-950 aspect-video cursor-pointer transition shadow-lg hover:shadow-cyan-950/40"
+      title={`Promote ${cam.name} to Main Stage`}
+    >
+      {/* Feed Rendering: Live MJPEG or Fallback Virtual Canvas */}
+      {!imgError ? (
+        <img
+          src={getApiUrl(`/api/feed?cam=${cam.id}`)}
+          alt={cam.name}
+          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <VirtualCctvCanvas
+          channelId={cam.id}
+          bitrate={cam.bitrate_kbps || 295}
+          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+        />
+      )}
+
+      {/* Wireframe Tag Badge (v1, v2, v3) */}
+      <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-md border border-neutral-700/90 text-[10px] font-mono font-bold text-cyan-300 z-10">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        <span>{wireframeTag.toUpperCase()}</span>
+        <span className="text-neutral-400 font-normal">| CAM 0{cam.id}</span>
+      </div>
+
+      {/* Top-Right Bitrate */}
+      <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded border border-neutral-800 text-[10px] font-mono text-emerald-400 z-10">
+        {cam.bitrate_kbps || 295} KB/s
+      </div>
+
+      {/* Bottom Channel Label */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2 flex items-center justify-between text-[11px] z-10">
+        <span className="font-medium text-neutral-200 truncate pr-2">
+          {cam.name.replace(/^CAM \d+ - /, '')}
+        </span>
+        <ArrowUpRight
+          size={14}
+          className="text-neutral-400 group-hover:text-cyan-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition shrink-0"
+        />
+      </div>
+
+      {/* Hover Highlight Ring */}
+      <div className="absolute inset-0 border-2 border-cyan-500 opacity-0 group-hover:opacity-100 transition rounded-xl pointer-events-none z-20" />
+    </div>
+  );
+};
 
 export const CameraThumbnailRow: React.FC<CameraThumbnailRowProps> = ({
   activeCamId,
@@ -57,53 +116,14 @@ export const CameraThumbnailRow: React.FC<CameraThumbnailRowProps> = ({
 
       {/* Sub-Camera Thumbnails Grid */}
       <div className="grid grid-cols-3 gap-3">
-        {subCameras.map((cam, idx) => {
-          const wireframeTag = wireframeTags[idx] || `v${idx + 1}`;
-          return (
-            <div
-              key={cam.id}
-              onClick={() => onSelectCamera(cam.id)}
-              className="group relative rounded-xl overflow-hidden border border-neutral-800 hover:border-cyan-500/70 bg-neutral-950 aspect-video cursor-pointer transition shadow-lg hover:shadow-cyan-950/40"
-              title={`Promote ${cam.name} to Main Stage`}
-            >
-              {/* Live Mini MJPEG Stream */}
-              <img
-                src={getApiUrl(`/api/feed?cam=${cam.id}`)}
-                alt={cam.name}
-                className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-
-              {/* Wireframe Tag Badge (v1, v2, v3) */}
-              <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-md border border-neutral-700/90 text-[10px] font-mono font-bold text-cyan-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>{wireframeTag.toUpperCase()}</span>
-                <span className="text-neutral-400 font-normal">| CAM 0{cam.id}</span>
-              </div>
-
-              {/* Top-Right Bitrate */}
-              <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded border border-neutral-800 text-[10px] font-mono text-emerald-400">
-                {cam.bitrate_kbps || 295} KB/s
-              </div>
-
-              {/* Bottom Channel Label */}
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2 flex items-center justify-between text-[11px]">
-                <span className="font-medium text-neutral-200 truncate pr-2">
-                  {cam.name.replace(/^CAM \d+ - /, '')}
-                </span>
-                <ArrowUpRight
-                  size={14}
-                  className="text-neutral-400 group-hover:text-cyan-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition shrink-0"
-                />
-              </div>
-
-              {/* Hover Highlight Ring */}
-              <div className="absolute inset-0 border-2 border-cyan-500 opacity-0 group-hover:opacity-100 transition rounded-xl pointer-events-none" />
-            </div>
-          );
-        })}
+        {subCameras.map((cam, idx) => (
+          <SubCamItem
+            key={cam.id}
+            cam={cam}
+            wireframeTag={wireframeTags[idx] || `v${idx + 1}`}
+            onSelect={() => onSelectCamera(cam.id)}
+          />
+        ))}
       </div>
     </div>
   );

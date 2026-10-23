@@ -12,12 +12,15 @@ import {
   Camera,
   Grid,
   Radio,
-  Clock
+  Clock,
+  Wifi,
+  Sparkles
 } from 'lucide-react';
 import { SystemMode, VideoRecordingItem } from '../types';
 import { videoRecorder } from '../utils/recorder';
 import { soundManager } from '../utils/audio';
 import { getApiUrl } from '../utils/api';
+import { renderVirtualCctvFrame } from '../utils/virtualCanvas';
 
 interface MainCameraStageProps {
   activeCamId: number;
@@ -33,6 +36,9 @@ interface MainCameraStageProps {
   onToggleGridView: () => void;
   onSelectSnapshot?: (url: string) => void;
   bitrateKbps?: number;
+  browserStream?: MediaStream | null;
+  cameraPermission?: 'prompt' | 'granted' | 'denied';
+  onRequestBrowserCamera?: () => void;
 }
 
 export const MainCameraStage: React.FC<MainCameraStageProps> = ({
@@ -49,20 +55,75 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   onToggleGridView,
   onSelectSnapshot,
   bitrateKbps = 297,
+  browserStream: propStream,
+  cameraPermission: propPermission,
+  onRequestBrowserCamera,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const virtualCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamKey, setStreamKey] = useState(Date.now());
   const [hasError, setHasError] = useState(false);
   const [currentTimeStr, setCurrentTimeStr] = useState('');
   const [liveBitrate, setLiveBitrate] = useState(bitrateKbps);
 
+  // Browser Camera Permission & Stream State (For Public Web & Published Deployments)
+  const [localPermission, setLocalPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [useBrowserCam, setUseBrowserCam] = useState(true);
+
+  const activeStream = propStream !== undefined ? propStream : localStream;
+  const activePermission = propPermission !== undefined ? propPermission : localPermission;
+
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recElapsedSec, setRecElapsedSec] = useState(0);
 
-  // Live CCTV OSD Clock & Bitrate fluctuation (Matching Reference Photos)
+  // Request browser camera on mount for public website access
+  const requestBrowserCamera = async () => {
+    if (onRequestBrowserCamera) {
+      onRequestBrowserCamera();
+      return;
+    }
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setLocalPermission('denied');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false,
+      });
+      setLocalStream(stream);
+      setLocalPermission('granted');
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Browser camera access was not granted:', err);
+      setLocalPermission('denied');
+    }
+  };
+
+  useEffect(() => {
+    if (activeCamId === 1 && useBrowserCam && !activeStream) {
+      requestBrowserCamera();
+    }
+  }, [activeCamId, useBrowserCam, activeStream]);
+
+  // Synchronize srcObject when videoRef becomes available or activeStream changes
+  useEffect(() => {
+    if (activeStream && videoRef.current && activeCamId === 1 && useBrowserCam) {
+      videoRef.current.srcObject = activeStream;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [activeStream, activeCamId, useBrowserCam]);
+
+  // Live CCTV OSD Clock & Bitrate fluctuation
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -74,7 +135,7 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
       const minutes = pad(now.getMinutes());
       const seconds = pad(now.getSeconds());
       setCurrentTimeStr(`${day}/${month}/${year} ${hours}:${minutes}:${seconds}`);
-      
+
       // Dynamic realistic bitrate variance (e.g. 288-316 KB/s)
       const variance = Math.floor(Math.sin(now.getTime() / 1500) * 14);
       setLiveBitrate(bitrateKbps + variance);
@@ -84,6 +145,25 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, [bitrateKbps]);
+
+  // Render virtual CCTV animated canvas when activeCamId > 1 or backend stream fails
+  useEffect(() => {
+    let animId: number;
+    let fIdx = 0;
+
+    const renderLoop = () => {
+      fIdx++;
+      if (virtualCanvasRef.current && (activeCamId > 1 || (hasError && !useBrowserCam))) {
+        renderVirtualCctvFrame(virtualCanvasRef.current, activeCamId, fIdx, liveBitrate);
+      }
+      animId = requestAnimationFrame(renderLoop);
+    };
+
+    if (activeCamId > 1 || hasError) {
+      animId = requestAnimationFrame(renderLoop);
+    }
+    return () => cancelAnimationFrame(animId);
+  }, [activeCamId, hasError, useBrowserCam, liveBitrate]);
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
@@ -97,6 +177,9 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   const reloadStream = () => {
     setHasError(false);
     setStreamKey(Date.now());
+    if (activeCamId === 1 && useBrowserCam) {
+      requestBrowserCamera();
+    }
   };
 
   useEffect(() => {
@@ -118,20 +201,12 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
     }
   }, [isAlarmTriggered, heldItems]);
 
-  useEffect(() => {
-    if (isAlarmTriggered && !isRecording && imgRef.current) {
-      handleStartRecording('🚨 Auto-Recorded Intrusion Breach');
-      const autoStopTimer = setTimeout(() => {
-        handleStopRecording();
-      }, 8000);
-      return () => clearTimeout(autoStopTimer);
-    }
-  }, [isAlarmTriggered]);
-
   const handleStartRecording = (triggerReason: string = 'Manual Live Recording') => {
-    if (!imgRef.current) return;
+    const targetElement = useBrowserCam && activeCamId === 1 ? videoRef.current : imgRef.current;
+    if (!targetElement) return;
+
     const ok = videoRecorder.startRecording(
-      imgRef.current,
+      targetElement,
       activeCamName,
       triggerReason,
       (elapsed) => setRecElapsedSec(elapsed),
@@ -161,21 +236,25 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   };
 
   const handleManualSnapshot = () => {
-    if (!imgRef.current) return;
-    try {
-      const canvas = document.createElement('canvas');
+    const canvas = document.createElement('canvas');
+    if (useBrowserCam && activeCamId === 1 && videoRef.current) {
+      canvas.width = videoRef.current.videoWidth || 640;
+      canvas.height = videoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        onSelectSnapshot?.(canvas.toDataURL('image/jpeg', 0.9));
+      }
+    } else if (imgRef.current) {
       canvas.width = imgRef.current.naturalWidth || 640;
       canvas.height = imgRef.current.naturalHeight || 480;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(imgRef.current, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        if (onSelectSnapshot) {
-          onSelectSnapshot(dataUrl);
-        }
+        onSelectSnapshot?.(canvas.toDataURL('image/jpeg', 0.9));
       }
-    } catch (e) {
-      console.warn('Snapshot canvas capture notice:', e);
+    } else if (virtualCanvasRef.current) {
+      onSelectSnapshot?.(virtualCanvasRef.current.toDataURL('image/jpeg', 0.9));
     }
   };
 
@@ -196,33 +275,69 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
     >
       {/* CCTV Viewport Container */}
       <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden select-none">
-        {hasError ? (
-          <div className="flex flex-col items-center justify-center text-neutral-400 p-8 text-center">
-            <Video size={48} className="text-neutral-600 mb-3" />
-            <p className="text-sm font-semibold text-neutral-300">Live Stream Offline or Connecting</p>
-            <p className="text-xs text-neutral-500 max-w-sm mt-1">
-              Connecting to channel {activeCamId}...
-            </p>
-            <button
-              onClick={reloadStream}
-              className="mt-4 flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition"
-            >
-              <RefreshCw size={13} /> Reconnect
-            </button>
-          </div>
+        {/* ============================================================ */}
+        {/* 1. CAM 01 BROWSER WEBCAM STREAM (PUBLISHED WEB MODE) */}
+        {/* ============================================================ */}
+        {activeCamId === 1 && useBrowserCam ? (
+          activePermission === 'granted' || !!activeStream ? (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-contain select-none transition-transform ${
+                mirrorFeed ? 'scale-x-[-1]' : ''
+              }`}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center text-neutral-300 p-8 text-center max-w-md">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center justify-center mb-3">
+                <Camera size={28} />
+              </div>
+              <h3 className="font-bold text-base text-white">Browser Camera Access Required</h3>
+              <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                To test live AI surveillance on this website, allow camera access when prompted by your browser.
+              </p>
+              <button
+                onClick={requestBrowserCamera}
+                className="mt-4 flex items-center gap-2 px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-cyan-600/30"
+              >
+                <Camera size={14} />
+                <span>Allow Camera & Start Sentinel</span>
+              </button>
+            </div>
+          )
+        ) : activeCamId === 1 ? (
+          /* 2. CAM 01 BACKEND MJPEG STREAM (WHEN CONNECTED TO PYTHON) */
+          hasError ? (
+            <canvas
+              ref={virtualCanvasRef}
+              width={640}
+              height={480}
+              className="w-full h-full object-contain select-none"
+            />
+          ) : (
+            <img
+              ref={imgRef}
+              key={`${activeCamId}-${streamKey}`}
+              src={getApiUrl(`/api/feed?cam=${activeCamId}&t=${streamKey}`)}
+              alt={`CCTV CAM ${activeCamId}`}
+              className="w-full h-full object-contain select-none"
+              onError={() => setHasError(true)}
+            />
+          )
         ) : (
-          <img
-            ref={imgRef}
-            key={`${activeCamId}-${streamKey}`}
-            src={getApiUrl(`/api/feed?cam=${activeCamId}&t=${streamKey}`)}
-            alt={`CCTV CAM ${activeCamId}`}
+          /* 3. CAM 02, 03, 04 (VIRTUAL CHANNELS OR EXTERNAL IP CAMERAS) */
+          <canvas
+            ref={virtualCanvasRef}
+            width={640}
+            height={480}
             className="w-full h-full object-contain select-none"
-            onError={() => setHasError(true)}
           />
         )}
 
         {/* ============================================================ */}
-        {/* TACTICAL CCTV CORNER BRACKETS (MILITARY/NVR HUD) */}
+        {/* TACTICAL CCTV CORNER BRACKETS */}
         {/* ============================================================ */}
         <div className="absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-emerald-500/70 pointer-events-none" />
         <div className="absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-emerald-500/70 pointer-events-none" />
@@ -233,7 +348,11 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         {/* TOP-LEFT OSD: Camera Identification & Status */}
         {/* ============================================================ */}
         <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-lg border border-neutral-800/80 text-xs">
-          <span className={`w-2.5 h-2.5 rounded-full ${isAlarmTriggered ? 'bg-red-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${
+              isAlarmTriggered ? 'bg-red-500 animate-ping' : 'bg-emerald-500 animate-pulse'
+            }`}
+          />
           <span className="font-bold text-white tracking-wider font-mono">CAM 0{activeCamId}</span>
           <span className="text-neutral-300 font-medium hidden sm:inline">| {activeCamName}</span>
           <span className="text-neutral-400 font-mono text-[11px]">({fps || 30} FPS)</span>
@@ -245,9 +364,21 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         </div>
 
         {/* ============================================================ */}
-        {/* TOP-RIGHT OSD: Real-Time Bitrate & CCTV Timestamp (Ref Images) */}
+        {/* TOP-RIGHT OSD: Real-Time Bitrate & CCTV Timestamp */}
         {/* ============================================================ */}
         <div className="absolute top-3 right-3 flex items-center gap-2">
+          {/* Source Toggle Pill for CAM 01 */}
+          {activeCamId === 1 && (
+            <button
+              onClick={() => setUseBrowserCam(!useBrowserCam)}
+              className="bg-black/75 hover:bg-neutral-900 border border-neutral-800 px-2 py-1 rounded-lg text-[10px] font-mono font-semibold text-neutral-300 hover:text-white transition flex items-center gap-1"
+              title="Toggle between Browser WebRTC Camera and Backend Stream"
+            >
+              <Sparkles size={11} className="text-cyan-400" />
+              <span>{useBrowserCam ? 'Source: Browser Cam' : 'Source: Backend AI'}</span>
+            </button>
+          )}
+
           {isAlarmTriggered && (
             <div className="flex items-center gap-1.5 bg-red-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs animate-bounce shadow-lg shadow-red-600/50">
               <ShieldAlert size={14} /> INTRUSION ACTIVE
@@ -266,7 +397,7 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         </div>
 
         {/* ============================================================ */}
-        {/* BOTTOM ACTION BAR HUD: Record, Snapshot, Mirror, Grid, Fullscreen */}
+        {/* BOTTOM ACTION BAR HUD */}
         {/* ============================================================ */}
         <div className="absolute bottom-3 right-3 flex items-center gap-2">
           {/* MediaRecorder Button */}

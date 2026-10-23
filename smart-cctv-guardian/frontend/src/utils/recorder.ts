@@ -40,14 +40,14 @@ export class VideoRecorderManager {
   }
 
   public startRecording(
-    imgElement: HTMLImageElement,
+    element: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
     cameraName: string,
     triggerEvent?: string,
     onTick?: (elapsedSec: number) => void,
     onFinished?: (item: VideoRecordingItem) => void
   ): boolean {
     if (this.isRecording) return false;
-    if (!imgElement || !imgElement.complete) return false;
+    if (!element) return false;
 
     this.onTickCallback = onTick;
     this.onFinishedCallback = onFinished;
@@ -76,11 +76,15 @@ export class VideoRecorderManager {
         this._finalizeRecording(cameraName, triggerEvent);
       };
 
-      // Start render loop to draw live img frames into canvas
+      // Start render loop to draw live element frames into canvas
       const renderLoop = () => {
         if (!this.isRecording) return;
-        if (this.ctx && imgElement.naturalWidth > 0) {
-          this.ctx.drawImage(imgElement, 0, 0, this.canvas.width, this.canvas.height);
+        if (this.ctx) {
+          try {
+            this.ctx.drawImage(element, 0, 0, this.canvas.width, this.canvas.height);
+          } catch (e) {
+            // Frame not ready
+          }
         }
         this.animFrameId = requestAnimationFrame(renderLoop);
       };
