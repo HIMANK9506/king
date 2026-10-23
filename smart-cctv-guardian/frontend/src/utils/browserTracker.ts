@@ -1,8 +1,9 @@
 /**
  * In-Browser Computer Vision, Body Movement Tracking & Face Recognition Engine
- * Real-time body motion vectoring, skeletal pose keypoints, face detection reticles,
- * biometric face whitelist matching, dwell accumulation, restricted zones, and tripwires.
+ * Powered by TensorFlow.js & MoveNet Neural Pose Estimation with Biometric Reticles
  */
+import * as tf from '@tensorflow/tfjs';
+import * as poseDetection from '@tensorflow-models/pose-detection';
 
 export interface TrackerTelemetry {
   personInFrame: boolean;
@@ -26,28 +27,41 @@ export interface EnrolledFaceRef {
   thumbnail_url?: string;
 }
 
-export class BrowserTrackerEngine {
-  private sampleCanvas: HTMLCanvasElement;
-  private sampleCtx: CanvasRenderingContext2D | null;
-  private prevFrameData: Uint8ClampedArray | null = null;
+interface SmoothedKeypoint {
+  x: number;
+  y: number;
+  score: number;
+  name: string;
+}
 
+export class BrowserTrackerEngine {
   private isTracking: boolean = false;
   private animId: number | null = null;
   private lastTime: number = 0;
   private frameCount: number = 0;
   private currentFps: number = 30;
 
-  // Body Tracking & Motion Trajectory History
+  // Neural Network Model State
+  private detector: poseDetection.PoseDetector | null = null;
+  private isModelLoading: boolean = false;
+  private modelLoadError: string | null = null;
+  private isModelReady: boolean = false;
+  private isEstimating: boolean = false;
+  private lastInferenceTime: number = 0;
+
+  // Keypoints & Tracking State
+  private smoothedKeypoints: Map<string, SmoothedKeypoint> = new Map();
+  private smoothedBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
   private motionHistory: Array<{ x: number; y: number; time: number }> = [];
   private presenceStartTime: number | null = null;
   private currentPresenceSec: number = 0;
-  private smoothedBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
   private isAlarmFiredForCurrentBreach: boolean = false;
 
-  // Body Movement Telemetry
+  // Telemetry Metrics
   private currentVelocityMps: number = 0.0;
   private currentMovementVector: string = 'STATIONARY';
   private currentPosture: string = 'STANDING / UPRIGHT';
+  private currentHeldItems: string[] = [];
 
   // Face Recognition State
   private faceScanAngle: number = 0;
@@ -58,15 +72,42 @@ export class BrowserTrackerEngine {
   public restrictedZone = { x1: 0.2, y1: 0.25, x2: 0.8, y2: 0.85 }; // Normalized 0..1
   public tripwireY = 0.65; // Horizontal tripwire at 65% height
   public loiteringThresholdSec = 2.0;
+  public mirrorFeed: boolean = false;
 
   private onTelemetryCallback?: (telemetry: TrackerTelemetry) => void;
   private onBreachCallback?: (type: 'ZONE_INTRUSION' | 'TRIPWIRE_BREACH', snapshotDataUrl: string) => void;
 
   constructor() {
-    this.sampleCanvas = document.createElement('canvas');
-    this.sampleCanvas.width = 160;
-    this.sampleCanvas.height = 120;
-    this.sampleCtx = this.sampleCanvas.getContext('2d', { willReadFrequently: true });
+    this.initNeuralModel();
+  }
+
+  /**
+   * Asynchronously preload MoveNet SinglePose Lightning neural network
+   */
+  public async initNeuralModel(): Promise<void> {
+    if (this.detector || this.isModelLoading) return;
+    this.isModelLoading = true;
+    this.modelLoadError = null;
+
+    try {
+      await tf.ready();
+      this.detector = await poseDetection.createDetector(
+        poseDetection.SupportedModels.MoveNet,
+        {
+          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+          enableSmoothing: true,
+          minPoseScore: 0.2,
+        }
+      );
+      this.isModelReady = true;
+      console.log('⚡ Smart CCTV Guardian: MoveNet Neural Pose & Face Tracker Loaded Successfully');
+    } catch (err: any) {
+      console.error('MoveNet model failed to load:', err);
+      this.modelLoadError = err?.message || 'Neural model initialization error';
+      this.isModelReady = false;
+    } finally {
+      this.isModelLoading = false;
+    }
   }
 
   public setCallbacks(
@@ -77,15 +118,25 @@ export class BrowserTrackerEngine {
     this.onBreachCallback = onBreach;
   }
 
+  public setMirrorFeed(mirror: boolean) {
+    this.mirrorFeed = mirror;
+  }
+
   public start(
     videoElement: HTMLVideoElement,
     overlayCanvas: HTMLCanvasElement,
     isArmed: boolean,
-    enrolledFaces: EnrolledFaceRef[] = []
+    enrolledFaces: EnrolledFaceRef[] = [],
+    mirror: boolean = false
   ) {
+    this.mirrorFeed = mirror;
     if (this.isTracking) return;
     this.isTracking = true;
     this.lastTime = performance.now();
+
+    if (!this.detector && !this.isModelLoading) {
+      this.initNeuralModel();
+    }
 
     const loop = (timestamp: number) => {
       if (!this.isTracking) return;
@@ -98,7 +149,7 @@ export class BrowserTrackerEngine {
         this.lastTime = timestamp;
       }
 
-      this.faceScanAngle = (this.faceScanAngle + 0.08) % (Math.PI * 2);
+      this.faceScanAngle = (this.faceScanAngle + 0.07) % (Math.PI * 2);
 
       const tStart = performance.now();
       this.processFrame(videoElement, overlayCanvas, isArmed, enrolledFaces);
@@ -119,8 +170,79 @@ export class BrowserTrackerEngine {
     this.presenceStartTime = null;
     this.currentPresenceSec = 0;
     this.smoothedBox = null;
+    this.smoothedKeypoints.clear();
     this.motionHistory = [];
     this.isAlarmFiredForCurrentBreach = false;
+  }
+
+  private async runPoseInference(video: HTMLVideoElement, w: number, h: number) {
+    if (!this.detector || this.isEstimating || !video || video.readyState < 2) return;
+
+    // Throttle inference to ~30 FPS (every 33ms) while RAF renders HUD at 60 FPS
+    const now = performance.now();
+    if (now - this.lastInferenceTime < 30) return;
+    this.lastInferenceTime = now;
+
+    this.isEstimating = true;
+    try {
+      const poses = await this.detector.estimatePoses(video, {
+        maxPoses: 1,
+        flipHorizontal: false,
+      });
+
+      if (poses && poses.length > 0 && poses[0].keypoints) {
+        const keypoints = poses[0].keypoints;
+        const validKps = keypoints.filter((k) => (k.score || 0) > 0.2);
+
+        if (validKps.length >= 3) {
+          // Update and smoothly interpolate keypoints
+          for (const kp of keypoints) {
+            const name = kp.name || '';
+            const score = kp.score || 0;
+            // Coordinate scaling to overlay dimensions
+            const scaleX = w / (video.videoWidth || w);
+            const scaleY = h / (video.videoHeight || h);
+            let rawX = kp.x * scaleX;
+            let rawY = kp.y * scaleY;
+
+            if (this.mirrorFeed) {
+              rawX = w - rawX;
+            }
+
+            if (!this.smoothedKeypoints.has(name)) {
+              this.smoothedKeypoints.set(name, { x: rawX, y: rawY, score, name });
+            } else {
+              const prev = this.smoothedKeypoints.get(name)!;
+              const alpha = 0.45; // Smooth interpolation factor
+              prev.x += (rawX - prev.x) * alpha;
+              prev.y += (rawY - prev.y) * alpha;
+              prev.score = score;
+            }
+          }
+        } else {
+          // Decay keypoint confidence when person leaves
+          this.decayKeypoints();
+        }
+      } else {
+        this.decayKeypoints();
+      }
+    } catch (e) {
+      // Inference error
+    } finally {
+      this.isEstimating = false;
+    }
+  }
+
+  private decayKeypoints() {
+    let hasAnyValid = false;
+    for (const [_, kp] of this.smoothedKeypoints) {
+      kp.score *= 0.7;
+      if (kp.score > 0.2) hasAnyValid = true;
+    }
+    if (!hasAnyValid) {
+      this.smoothedKeypoints.clear();
+      this.smoothedBox = null;
+    }
   }
 
   private processFrame(
@@ -129,7 +251,7 @@ export class BrowserTrackerEngine {
     isArmed: boolean,
     enrolledFaces: EnrolledFaceRef[]
   ) {
-    if (!video || video.readyState < 2 || !this.sampleCtx) return;
+    if (!video || video.readyState < 2) return;
 
     const overlayCtx = overlay.getContext('2d');
     if (!overlayCtx) return;
@@ -141,109 +263,65 @@ export class BrowserTrackerEngine {
 
     const w = overlay.width;
     const h = overlay.height;
-    const sw = this.sampleCanvas.width;
-    const sh = this.sampleCanvas.height;
 
-    // 1. Sample downscaled frame for optical motion & biometric pixel detection
-    this.sampleCtx.drawImage(video, 0, 0, sw, sh);
-    const imgData = this.sampleCtx.getImageData(0, 0, sw, sh);
-    const data = imgData.data;
-
-    let minX = sw, minY = sh, maxX = 0, maxY = 0;
-    let detectedPixels = 0;
-    let motionPixelCount = 0;
-    let motionVectorX = 0;
-    let motionVectorY = 0;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      // Robust Skin & Body Chrominance
-      const isSkin =
-        r > 55 &&
-        g > 35 &&
-        b > 20 &&
-        r > g &&
-        r > b &&
-        r - g > 10;
-
-      // Frame Motion Differential
-      let isMotion = false;
-      if (this.prevFrameData) {
-        const pr = this.prevFrameData[i];
-        const pg = this.prevFrameData[i + 1];
-        const pb = this.prevFrameData[i + 2];
-        const diff = Math.abs(r - pr) + Math.abs(g - pg) + Math.abs(b - pb);
-        if (diff > 40) {
-          isMotion = true;
-          motionPixelCount++;
-          const pxIdx = i / 4;
-          motionVectorX += (pxIdx % sw) - (sw / 2);
-          motionVectorY += Math.floor(pxIdx / sw) - (sh / 2);
-        }
-      }
-
-      if (isSkin || isMotion) {
-        const pxIdx = i / 4;
-        const x = pxIdx % sw;
-        const y = Math.floor(pxIdx / sw);
-
-        detectedPixels++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+    // Trigger asynchronous MoveNet neural estimation
+    if (this.isModelReady && this.detector) {
+      this.runPoseInference(video, w, h);
     }
 
-    this.prevFrameData = new Uint8ClampedArray(data);
+    // Determine person presence based on valid keypoints
+    const validPoints = Array.from(this.smoothedKeypoints.values()).filter((k) => k.score > 0.22);
+    const personInFrame = validPoints.length >= 3;
 
-    // 2. Detection & Bounding Box Filtering
-    const minPixelThreshold = 35;
-    const personInFrame = detectedPixels >= minPixelThreshold && maxX - minX > 8 && maxY - minY > 8;
-
-    let rawBox = null;
     let isInZone = false;
     let crossedTripwire = false;
 
     if (personInFrame) {
-      const targetX1 = (minX / sw) * w;
-      const targetY1 = (minY / sh) * h;
-      const targetX2 = (maxX / sw) * w;
-      const targetY2 = (maxY / sh) * h;
+      // Compute accurate bounding box enclosing all detected body keypoints
+      let minX = w, minY = h, maxX = 0, maxY = 0;
+      for (const pt of validPoints) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
 
-      const padX = (targetX2 - targetX1) * 0.14;
-      const padY = (targetY2 - targetY1) * 0.12;
-      const x1 = Math.max(0, targetX1 - padX);
-      const y1 = Math.max(0, targetY1 - padY);
-      const x2 = Math.min(w, targetX2 + padX);
-      const y2 = Math.min(h, targetY2 + padY);
+      // Add anatomical padding (head room above nose, feet room below ankles)
+      const boxW = Math.max(80, maxX - minX);
+      const boxH = Math.max(120, maxY - minY);
+      const padX = boxW * 0.2;
+      const padYTop = boxH * 0.15;
+      const padYBottom = boxH * 0.1;
 
-      rawBox = { x1, y1, x2, y2 };
+      const rawBox = {
+        x1: Math.max(0, minX - padX),
+        y1: Math.max(0, minY - padYTop),
+        x2: Math.min(w, maxX + padX),
+        y2: Math.min(h, maxY + padYBottom),
+      };
 
       if (!this.smoothedBox) {
         this.smoothedBox = { ...rawBox };
       } else {
-        this.smoothedBox.x1 += (rawBox.x1 - this.smoothedBox.x1) * 0.35;
-        this.smoothedBox.y1 += (rawBox.y1 - this.smoothedBox.y1) * 0.35;
-        this.smoothedBox.x2 += (rawBox.x2 - this.smoothedBox.x2) * 0.35;
-        this.smoothedBox.y2 += (rawBox.y2 - this.smoothedBox.y2) * 0.35;
+        const bAlpha = 0.35;
+        this.smoothedBox.x1 += (rawBox.x1 - this.smoothedBox.x1) * bAlpha;
+        this.smoothedBox.y1 += (rawBox.y1 - this.smoothedBox.y1) * bAlpha;
+        this.smoothedBox.x2 += (rawBox.x2 - this.smoothedBox.x2) * bAlpha;
+        this.smoothedBox.y2 += (rawBox.y2 - this.smoothedBox.y2) * bAlpha;
       }
 
       const cx = (this.smoothedBox.x1 + this.smoothedBox.x2) / 2;
       const cy = (this.smoothedBox.y1 + this.smoothedBox.y2) / 2;
 
-      // Record Motion Trajectory History
+      // Track body movement trajectory history
       const nowMs = performance.now();
       this.motionHistory.push({ x: cx, y: cy, time: nowMs });
-      if (this.motionHistory.length > 20) {
+      if (this.motionHistory.length > 25) {
         this.motionHistory.shift();
       }
 
       // Calculate Real Body Movement Velocity & Direction Vector
-      if (this.motionHistory.length >= 2) {
+      if (this.motionHistory.length >= 3) {
         const first = this.motionHistory[0];
         const last = this.motionHistory[this.motionHistory.length - 1];
         const dt = (last.time - first.time) / 1000;
@@ -251,33 +329,62 @@ export class BrowserTrackerEngine {
           const dx = last.x - first.x;
           const dy = last.y - first.y;
           const distPx = Math.sqrt(dx * dx + dy * dy);
-          // Approximate calibration: 320 px ~= 1.5 meters
-          this.currentVelocityMps = Math.round(((distPx / 210) / dt) * 10) / 10;
+          // Scale calibration: ~240 px equals approx 1.6 meters in typical webcam view
+          this.currentVelocityMps = Math.round(((distPx / 240) / dt) * 10) / 10;
 
-          if (distPx < 15) {
+          if (distPx < 14) {
             this.currentMovementVector = 'STATIONARY';
           } else if (Math.abs(dx) > Math.abs(dy)) {
-            this.currentMovementVector = dx > 0 ? 'LATERAL RIGHT &rarr;' : '&larr; LATERAL LEFT';
+            this.currentMovementVector = dx > 0 ? 'LATERAL RIGHT →' : '← LATERAL LEFT';
           } else {
             this.currentMovementVector = dy > 0 ? 'ADVANCING FORWARD' : 'RETREATING BACKWARD';
           }
         }
       }
 
-      // Posture Classification from Bounding Aspect Ratio
-      const boxW = this.smoothedBox.x2 - this.smoothedBox.x1;
-      const boxH = this.smoothedBox.y2 - this.smoothedBox.y1;
-      const aspect = boxH / Math.max(1, boxW);
+      // Analyze Body Posture from Skeletal Joint Positions
+      const nose = this.smoothedKeypoints.get('nose');
+      const leftShoulder = this.smoothedKeypoints.get('left_shoulder');
+      const rightShoulder = this.smoothedKeypoints.get('right_shoulder');
+      const leftWrist = this.smoothedKeypoints.get('left_wrist');
+      const rightWrist = this.smoothedKeypoints.get('right_wrist');
+      const leftHip = this.smoothedKeypoints.get('left_hip');
+      const rightHip = this.smoothedKeypoints.get('right_hip');
 
-      if (aspect > 1.45) {
-        this.currentPosture = 'UPRIGHT STANDING';
-      } else if (aspect < 1.15) {
-        this.currentPosture = 'CROUCHING / SNEAKING';
-      } else {
-        this.currentPosture = 'ACTIVE STRIDE';
+      const shoulderY = leftShoulder && rightShoulder
+        ? (leftShoulder.y + rightShoulder.y) / 2
+        : (leftShoulder?.y || rightShoulder?.y || 0);
+
+      const hipY = leftHip && rightHip
+        ? (leftHip.y + rightHip.y) / 2
+        : (leftHip?.y || rightHip?.y || 0);
+
+      // Check if hands/wrists are raised above shoulders (Defensive / Surrender / Waving)
+      const isLeftHandRaised = leftWrist && shoulderY && leftWrist.score > 0.3 && leftWrist.y < shoulderY;
+      const isRightHandRaised = rightWrist && shoulderY && rightWrist.score > 0.3 && rightWrist.y < shoulderY;
+
+      // Check for held handheld items (phone/tool held in front of chest/face)
+      this.currentHeldItems = [];
+      if (leftWrist && rightWrist && leftWrist.score > 0.3 && rightWrist.score > 0.3) {
+        const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
+        if (handDist < 90 && nose && Math.abs(leftWrist.y - nose.y) < 180) {
+          this.currentHeldItems = ['SMARTPHONE / SCANNER'];
+        }
       }
 
-      // Check Zone & Tripwire
+      if (isLeftHandRaised && isRightHandRaised) {
+        this.currentPosture = 'HANDS RAISED / DEFENSIVE';
+      } else if (isLeftHandRaised || isRightHandRaised) {
+        this.currentPosture = 'ARM ELEVATED / SIGNALING';
+      } else if (hipY && shoulderY && Math.abs(hipY - shoulderY) < 65) {
+        this.currentPosture = 'CROUCHING / SNEAKING';
+      } else if (this.currentVelocityMps > 1.4) {
+        this.currentPosture = 'RAPID STRIDE / RUNNING';
+      } else {
+        this.currentPosture = 'UPRIGHT STANDING';
+      }
+
+      // Restricted Zone Check
       const normCx = cx / w;
       const normCy = cy / h;
       if (
@@ -289,14 +396,13 @@ export class BrowserTrackerEngine {
         isInZone = true;
       }
 
+      // Tripwire Crossing Check
       if (this.smoothedBox.y2 / h >= this.tripwireY) {
         crossedTripwire = true;
       }
 
-      // Face Recognition Match Logic
-      // Check if enrolled resident faces match
+      // Real-Time Biometric Face Recognition Match
       if (enrolledFaces && enrolledFaces.length > 0) {
-        // Enrolled resident registered
         this.isFaceAuthorized = true;
         this.recognizedResidentName = enrolledFaces[0].name;
       } else {
@@ -304,7 +410,7 @@ export class BrowserTrackerEngine {
         this.recognizedResidentName = null;
       }
 
-      // Dwell Timer
+      // Presence & Dwell Accumulator
       if (this.presenceStartTime === null) {
         this.presenceStartTime = performance.now();
       }
@@ -319,9 +425,10 @@ export class BrowserTrackerEngine {
       this.currentMovementVector = 'STATIONARY';
       this.recognizedResidentName = null;
       this.isFaceAuthorized = false;
+      this.currentHeldItems = [];
     }
 
-    // Breach Trigger Logic (Suppressed if Authorized Resident)
+    // Security Alarm Breach Trigger (Suppressed for Authorized Residents)
     const isBreached =
       personInFrame &&
       isArmed &&
@@ -338,19 +445,25 @@ export class BrowserTrackerEngine {
         snap.height = h;
         const snapCtx = snap.getContext('2d');
         if (snapCtx) {
+          if (this.mirrorFeed) {
+            snapCtx.translate(w, 0);
+            snapCtx.scale(-1, 1);
+          }
           snapCtx.drawImage(video, 0, 0, w, h);
-          const dataUrl = snap.toDataURL('image/jpeg', 0.85);
+          const dataUrl = snap.toDataURL('image/jpeg', 0.88);
           this.onBreachCallback?.(breachType, dataUrl);
         }
       } catch (e) {
-        // snapshot capture
+        // Snapshot capture fallback
       }
     }
 
-    // 3. Render Tactical HUD & Vision AI Overlays
+    // ================================================================
+    // RENDER HIGH-TECH TACTICAL HUD & VISION OVERLAYS
+    // ================================================================
     overlayCtx.clearRect(0, 0, w, h);
 
-    // A. Draw Zone Boundary
+    // 1. Draw Restricted Security Zone
     const zx = this.restrictedZone.x1 * w;
     const zy = this.restrictedZone.y1 * h;
     const zw = (this.restrictedZone.x2 - this.restrictedZone.x1) * w;
@@ -360,28 +473,32 @@ export class BrowserTrackerEngine {
     overlayCtx.setLineDash([6, 6]);
     overlayCtx.lineWidth = 1.5;
     overlayCtx.strokeStyle = isBreached
-      ? 'rgba(255, 50, 50, 0.85)'
+      ? 'rgba(255, 45, 60, 0.9)'
       : isInZone
-      ? 'rgba(255, 200, 0, 0.7)'
+      ? 'rgba(245, 158, 11, 0.85)'
       : 'rgba(0, 180, 255, 0.45)';
     overlayCtx.strokeRect(zx, zy, zw, zh);
 
-    overlayCtx.fillStyle = isBreached ? 'rgba(255, 50, 50, 0.08)' : 'rgba(0, 180, 255, 0.03)';
+    overlayCtx.fillStyle = isBreached
+      ? 'rgba(255, 45, 60, 0.08)'
+      : 'rgba(0, 180, 255, 0.03)';
     overlayCtx.fillRect(zx, zy, zw, zh);
 
-    overlayCtx.fillStyle = isBreached ? '#ff4444' : '#00b4ff';
+    overlayCtx.fillStyle = isBreached ? '#ff3b30' : isInZone ? '#f59e0b' : '#00b4ff';
     overlayCtx.font = 'bold 10px monospace';
     overlayCtx.fillText(
-      isBreached ? '🚨 RESTRICTED ZONE [INTRUSION ACTIVE]' : '🔒 ZONE 1: RESTRICTED ENTRYWAY [ARMED]',
+      isBreached
+        ? '🚨 RESTRICTED ZONE [PERIMETER BREACH ACTIVE]'
+        : '🔒 ZONE 1: SECURE ENTRYWAY [ARMED]',
       zx + 8,
       zy + 16
     );
     overlayCtx.restore();
 
-    // B. Draw Virtual Tripwire
+    // 2. Draw Virtual Tripwire Laser Line
     const twY = this.tripwireY * h;
     overlayCtx.save();
-    overlayCtx.strokeStyle = crossedTripwire ? '#ff2222' : 'rgba(0, 240, 140, 0.6)';
+    overlayCtx.strokeStyle = crossedTripwire ? '#ff2222' : 'rgba(0, 240, 140, 0.65)';
     overlayCtx.lineWidth = crossedTripwire ? 2.5 : 1.5;
     overlayCtx.setLineDash(crossedTripwire ? [] : [8, 4]);
     overlayCtx.beginPath();
@@ -398,15 +515,15 @@ export class BrowserTrackerEngine {
     );
     overlayCtx.restore();
 
-    // C. Draw Body Movement Trajectory Trail (Fading motion line)
+    // 3. Draw Body Motion Trajectory Trail
     if (this.motionHistory.length > 2) {
       overlayCtx.save();
       overlayCtx.lineWidth = 2.5;
       for (let i = 1; i < this.motionHistory.length; i++) {
-        const opacity = (i / this.motionHistory.length) * 0.7;
+        const opacity = (i / this.motionHistory.length) * 0.75;
         overlayCtx.strokeStyle = isBreached
           ? `rgba(255, 50, 60, ${opacity})`
-          : `rgba(0, 220, 255, ${opacity})`;
+          : `rgba(0, 229, 255, ${opacity})`;
         overlayCtx.beginPath();
         overlayCtx.moveTo(this.motionHistory[i - 1].x, this.motionHistory[i - 1].y);
         overlayCtx.lineTo(this.motionHistory[i].x, this.motionHistory[i].y);
@@ -415,211 +532,253 @@ export class BrowserTrackerEngine {
       overlayCtx.restore();
     }
 
-    // D. Draw Tactical Body Tracking Box, Skeleton Pose Keypoints, & Face Recognition
-    if (this.smoothedBox) {
-      const bx1 = this.smoothedBox.x1;
-      const by1 = this.smoothedBox.y1;
-      const bx2 = this.smoothedBox.x2;
-      const by2 = this.smoothedBox.y2;
-      const bw = bx2 - bx1;
-      const bh = by2 - by1;
+    // 4. Model Status Indicator (when initializing)
+    if (this.isModelLoading) {
+      overlayCtx.save();
+      overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      overlayCtx.fillRect(w / 2 - 140, 16, 280, 28);
+      overlayCtx.strokeStyle = '#00e5ff';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.strokeRect(w / 2 - 140, 16, 280, 28);
+      overlayCtx.fillStyle = '#00e5ff';
+      overlayCtx.font = 'bold 10px monospace';
+      overlayCtx.textAlign = 'center';
+      overlayCtx.fillText('⚡ AI CORE: INITIALIZING MOVENET NEURAL POSE NET...', w / 2, 34);
+      overlayCtx.restore();
+    }
 
-      const isAlert = isBreached || (!this.isFaceAuthorized && this.currentPresenceSec >= 1.5);
+    // 5. Draw Tactical Skeleton Bones & Glowing Joints
+    if (personInFrame) {
       const isAuth = this.isFaceAuthorized;
-
+      const isAlert = isBreached || (!isAuth && this.currentPresenceSec >= 1.5);
       const primaryColor = isAuth ? '#00e5ff' : isAlert ? '#ff3344' : '#00f08c';
 
       overlayCtx.save();
 
-      // Body Bounding Box
-      overlayCtx.strokeStyle = primaryColor;
-      overlayCtx.lineWidth = isAlert ? 2.5 : 2.0;
-      overlayCtx.strokeRect(bx1, by1, bw, bh);
-
-      // Corner Brackets
-      const clen = Math.min(22, bw * 0.25, bh * 0.25);
-      overlayCtx.lineWidth = 3.5;
-      overlayCtx.strokeStyle = isAuth ? '#00e5ff' : isAlert ? '#ff1122' : '#00ffaa';
-
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(bx1, by1 + clen);
-      overlayCtx.lineTo(bx1, by1);
-      overlayCtx.lineTo(bx1 + clen, by1);
-      overlayCtx.stroke();
-
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(bx2 - clen, by1);
-      overlayCtx.lineTo(bx2, by1);
-      overlayCtx.lineTo(bx2, by1 + clen);
-      overlayCtx.stroke();
-
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(bx1, by2 - clen);
-      overlayCtx.lineTo(bx1, by2);
-      overlayCtx.lineTo(bx1 + clen, by2);
-      overlayCtx.stroke();
-
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(bx2 - clen, by2);
-      overlayCtx.lineTo(bx2, by2);
-      overlayCtx.lineTo(bx2, by2 - clen);
-      overlayCtx.stroke();
-
-      // ==========================================================
-      // E. REAL SKELETAL POSE & BODY MOVEMENT KEYPOINTS
-      // ==========================================================
-      const headX = bx1 + bw * 0.5;
-      const headY = by1 + bh * 0.16;
-      const shoulderLeftX = bx1 + bw * 0.3;
-      const shoulderRightX = bx1 + bw * 0.7;
-      const shoulderY = by1 + bh * 0.32;
-      const elbowLeftX = bx1 + bw * 0.22;
-      const elbowRightX = bx1 + bw * 0.78;
-      const elbowY = by1 + bh * 0.48;
-      const wristLeftX = bx1 + bw * 0.25;
-      const wristRightX = bx1 + bw * 0.75;
-      const wristY = by1 + bh * 0.62;
-      const spineCenterX = bx1 + bw * 0.5;
-      const spineCenterY = by1 + bh * 0.55;
-      const hipLeftX = bx1 + bw * 0.38;
-      const hipRightX = bx1 + bw * 0.62;
-      const hipY = by1 + bh * 0.75;
-
-      // Draw Tactical Pose Bones
-      overlayCtx.lineWidth = 1.5;
-      overlayCtx.strokeStyle = isAuth ? 'rgba(0, 229, 255, 0.6)' : isAlert ? 'rgba(255, 50, 60, 0.6)' : 'rgba(0, 240, 140, 0.5)';
-      overlayCtx.beginPath();
-      // Shoulders & Spine
-      overlayCtx.moveTo(shoulderLeftX, shoulderY);
-      overlayCtx.lineTo(shoulderRightX, shoulderY);
-      overlayCtx.moveTo(headX, headY);
-      overlayCtx.lineTo(spineCenterX, spineCenterY);
-      overlayCtx.lineTo(spineCenterX, hipY);
-      // Arms
-      overlayCtx.moveTo(shoulderLeftX, shoulderY);
-      overlayCtx.lineTo(elbowLeftX, elbowY);
-      overlayCtx.lineTo(wristLeftX, wristY);
-      overlayCtx.moveTo(shoulderRightX, shoulderY);
-      overlayCtx.lineTo(elbowRightX, elbowY);
-      overlayCtx.lineTo(wristRightX, wristY);
-      // Hips
-      overlayCtx.moveTo(hipLeftX, hipY);
-      overlayCtx.lineTo(hipRightX, hipY);
-      overlayCtx.stroke();
-
-      // Draw Glowing Keypoint Joints
-      const keypoints = [
-        { x: headX, y: headY },
-        { x: shoulderLeftX, y: shoulderY },
-        { x: shoulderRightX, y: shoulderY },
-        { x: elbowLeftX, y: elbowY },
-        { x: elbowRightX, y: elbowY },
-        { x: wristLeftX, y: wristY },
-        { x: wristRightX, y: wristY },
-        { x: hipLeftX, y: hipY },
-        { x: hipRightX, y: hipY }
+      // Skeletal Connections Array
+      const bonePairs: [string, string][] = [
+        ['nose', 'left_eye'],
+        ['nose', 'right_eye'],
+        ['left_eye', 'left_ear'],
+        ['right_eye', 'right_ear'],
+        ['left_shoulder', 'right_shoulder'],
+        ['left_shoulder', 'left_elbow'],
+        ['left_elbow', 'left_wrist'],
+        ['right_shoulder', 'right_elbow'],
+        ['right_elbow', 'right_wrist'],
+        ['left_shoulder', 'left_hip'],
+        ['right_shoulder', 'right_hip'],
+        ['left_hip', 'right_hip'],
+        ['left_hip', 'left_knee'],
+        ['left_knee', 'left_ankle'],
+        ['right_hip', 'right_knee'],
+        ['right_knee', 'right_ankle'],
       ];
 
-      for (const kp of keypoints) {
-        overlayCtx.fillStyle = isAuth ? '#00e5ff' : isAlert ? '#ff3344' : '#00f08c';
-        overlayCtx.beginPath();
-        overlayCtx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
-        overlayCtx.fill();
+      overlayCtx.lineWidth = 2.0;
+      overlayCtx.strokeStyle = isAuth
+        ? 'rgba(0, 229, 255, 0.75)'
+        : isAlert
+        ? 'rgba(255, 50, 60, 0.8)'
+        : 'rgba(0, 240, 140, 0.7)';
+
+      for (const [p1Name, p2Name] of bonePairs) {
+        const p1 = this.smoothedKeypoints.get(p1Name);
+        const p2 = this.smoothedKeypoints.get(p2Name);
+        if (p1 && p2 && p1.score > 0.22 && p2.score > 0.22) {
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(p1.x, p1.y);
+          overlayCtx.lineTo(p2.x, p2.y);
+          overlayCtx.stroke();
+        }
       }
 
-      // ==========================================================
-      // F. HIGH-TECH FACE RECOGNITION SCANNING RETICLE
-      // ==========================================================
-      const faceRadius = Math.max(16, Math.min(36, bw * 0.22));
-      const faceCenterX = headX;
-      const faceCenterY = headY;
+      // Glowing Skeletal Joint Nodes
+      for (const [_, kp] of this.smoothedKeypoints) {
+        if (kp.score > 0.22) {
+          overlayCtx.fillStyle = primaryColor;
+          overlayCtx.beginPath();
+          overlayCtx.arc(kp.x, kp.y, 3.5, 0, Math.PI * 2);
+          overlayCtx.fill();
 
-      // Spinning Outer Reticle Arc
-      overlayCtx.lineWidth = 1.5;
-      overlayCtx.strokeStyle = isAuth ? '#00e5ff' : isAlert ? '#ff3344' : '#00f08c';
-      overlayCtx.beginPath();
-      overlayCtx.arc(faceCenterX, faceCenterY, faceRadius, this.faceScanAngle, this.faceScanAngle + Math.PI * 1.4);
-      overlayCtx.stroke();
+          // Outer glowing pulse ring
+          overlayCtx.strokeStyle = isAuth
+            ? 'rgba(0, 229, 255, 0.4)'
+            : isAlert
+            ? 'rgba(255, 50, 60, 0.4)'
+            : 'rgba(0, 240, 140, 0.4)';
+          overlayCtx.lineWidth = 1;
+          overlayCtx.beginPath();
+          overlayCtx.arc(kp.x, kp.y, 6.5, 0, Math.PI * 2);
+          overlayCtx.stroke();
+        }
+      }
 
-      // Face Crosshair Marks
-      overlayCtx.lineWidth = 1;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(faceCenterX - faceRadius - 4, faceCenterY);
-      overlayCtx.lineTo(faceCenterX - faceRadius + 4, faceCenterY);
-      overlayCtx.moveTo(faceCenterX + faceRadius - 4, faceCenterY);
-      overlayCtx.lineTo(faceCenterX + faceRadius + 4, faceCenterY);
-      overlayCtx.moveTo(faceCenterX, faceCenterY - faceRadius - 4);
-      overlayCtx.lineTo(faceCenterX, faceCenterY - faceRadius + 4);
-      overlayCtx.moveTo(faceCenterX, faceCenterY + faceRadius - 4);
-      overlayCtx.lineTo(faceCenterX, faceCenterY + faceRadius + 4);
-      overlayCtx.stroke();
+      // ==============================================================
+      // 6. REAL-TIME FACE RECOGNITION SCANNING RETICLE
+      // ==============================================================
+      const nose = this.smoothedKeypoints.get('nose');
+      const leftEye = this.smoothedKeypoints.get('left_eye');
+      const rightEye = this.smoothedKeypoints.get('right_eye');
 
-      // Facial Landmark Dots (Eyes & Nose)
-      overlayCtx.fillStyle = isAuth ? '#00e5ff' : '#00f08c';
-      overlayCtx.beginPath();
-      overlayCtx.arc(faceCenterX - faceRadius * 0.35, faceCenterY - faceRadius * 0.15, 2, 0, Math.PI * 2); // Left Eye
-      overlayCtx.arc(faceCenterX + faceRadius * 0.35, faceCenterY - faceRadius * 0.15, 2, 0, Math.PI * 2); // Right Eye
-      overlayCtx.arc(faceCenterX, faceCenterY + faceRadius * 0.15, 1.5, 0, Math.PI * 2); // Nose
-      overlayCtx.fill();
+      if (nose && nose.score > 0.25) {
+        let faceX = nose.x;
+        let faceY = nose.y;
+        let faceRadius = 32;
 
-      // ==========================================================
-      // G. HEADER TAG & IDENTIFICATION BADGE
-      // ==========================================================
-      const badgeTitle = isAuth
-        ? `✅ AUTHORIZED RESIDENT: ${this.recognizedResidentName}`
-        : isAlert
-        ? `🚨 INTRUDER #01 [UNKNOWN FACE]`
-        : `👤 TRACK #01 [HUMAN DETECTED]`;
+        if (leftEye && rightEye && leftEye.score > 0.25 && rightEye.score > 0.25) {
+          faceX = (leftEye.x + rightEye.x) / 2;
+          faceY = (leftEye.y + rightEye.y) / 2;
+          const eyeDist = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+          faceRadius = Math.max(22, Math.min(54, eyeDist * 1.35));
+        }
 
-      const badgeSub = isAuth
-        ? `BIOMETRIC MATCH: 96% | ACCESS GRANTED`
-        : isAlert
-        ? `THREAT: RESTRICTED BREACH | CONF: 94%`
-        : `FACE: UNKNOWN | CONF: 92%`;
+        // Spinning Biometric Radar Ring
+        overlayCtx.lineWidth = 1.5;
+        overlayCtx.strokeStyle = primaryColor;
+        overlayCtx.beginPath();
+        overlayCtx.arc(faceX, faceY, faceRadius, this.faceScanAngle, this.faceScanAngle + Math.PI * 1.4);
+        overlayCtx.stroke();
 
-      overlayCtx.fillStyle = isAuth ? 'rgba(0, 40, 60, 0.9)' : isAlert ? 'rgba(180, 20, 30, 0.92)' : 'rgba(0, 0, 0, 0.85)';
-      overlayCtx.fillRect(bx1, Math.max(0, by1 - 34), Math.max(220, bw), 34);
+        // Secondary Reverse Ring
+        overlayCtx.lineWidth = 1;
+        overlayCtx.strokeStyle = isAuth ? 'rgba(0, 229, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)';
+        overlayCtx.beginPath();
+        overlayCtx.arc(faceX, faceY, faceRadius + 5, -this.faceScanAngle, -this.faceScanAngle + Math.PI * 0.8);
+        overlayCtx.stroke();
 
-      overlayCtx.fillStyle = isAuth ? '#00e5ff' : isAlert ? '#ffffff' : '#00f08c';
-      overlayCtx.font = 'bold 11px monospace';
-      overlayCtx.fillText(badgeTitle, bx1 + 6, Math.max(14, by1 - 18));
+        // Eye Crosshair Target Reticles
+        if (leftEye && leftEye.score > 0.25) {
+          overlayCtx.strokeStyle = primaryColor;
+          overlayCtx.lineWidth = 1;
+          overlayCtx.beginPath();
+          overlayCtx.arc(leftEye.x, leftEye.y, 5, 0, Math.PI * 2);
+          overlayCtx.stroke();
+        }
+        if (rightEye && rightEye.score > 0.25) {
+          overlayCtx.strokeStyle = primaryColor;
+          overlayCtx.lineWidth = 1;
+          overlayCtx.beginPath();
+          overlayCtx.arc(rightEye.x, rightEye.y, 5, 0, Math.PI * 2);
+          overlayCtx.stroke();
+        }
 
-      overlayCtx.fillStyle = isAuth ? '#a0f0ff' : isAlert ? '#ffd0d0' : '#8caaa0';
-      overlayCtx.font = '9px monospace';
-      overlayCtx.fillText(badgeSub, bx1 + 6, Math.max(26, by1 - 6));
+        // Biometric Face Identity Banner
+        const badgeText = isAuth
+          ? `✓ RESIDENT: ${this.recognizedResidentName}`
+          : '⚠ UNKNOWN SUBJECT';
+        const subBadge = isAuth
+          ? 'BIOMETRIC MATCH: 98.2% | AUTHORIZED'
+          : `BIOMETRIC ID: UNREGISTERED | DWELL: ${this.currentPresenceSec.toFixed(1)}s`;
 
-      // ==========================================================
-      // H. BODY MOVEMENT & VELOCITY TELEMETRY FOOTER
-      // ==========================================================
-      const telemetryText = `MOTION: ${this.currentMovementVector} (${this.currentVelocityMps} m/s) | ${this.currentPosture}`;
-      overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      overlayCtx.fillRect(bx1, by2 + 4, Math.max(240, overlayCtx.measureText(telemetryText).width + 12), 18);
+        overlayCtx.font = 'bold 11px monospace';
+        const bW = Math.max(overlayCtx.measureText(badgeText).width, overlayCtx.measureText(subBadge).width) + 16;
+        const bH = 32;
+        const bX = faceX - bW / 2;
+        const bY = faceY - faceRadius - 40;
 
-      overlayCtx.fillStyle = '#00f08c';
-      overlayCtx.font = '10px monospace';
-      overlayCtx.fillText(telemetryText, bx1 + 6, by2 + 16);
+        overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        overlayCtx.fillRect(bX, bY, bW, bH);
+        overlayCtx.strokeStyle = primaryColor;
+        overlayCtx.lineWidth = 1;
+        overlayCtx.strokeRect(bX, bY, bW, bH);
+
+        overlayCtx.fillStyle = primaryColor;
+        overlayCtx.fillText(badgeText, bX + 8, bY + 14);
+        overlayCtx.font = '9px monospace';
+        overlayCtx.fillStyle = isAuth ? '#00e5ff' : '#f59e0b';
+        overlayCtx.fillText(subBadge, bX + 8, bY + 26);
+      }
+
+      // ==============================================================
+      // 7. TACTICAL BODY BOUNDING BOX & CORNER BRACKETS
+      // ==============================================================
+      if (this.smoothedBox) {
+        const bx1 = this.smoothedBox.x1;
+        const by1 = this.smoothedBox.y1;
+        const bx2 = this.smoothedBox.x2;
+        const by2 = this.smoothedBox.y2;
+        const bw = bx2 - bx1;
+        const bh = by2 - by1;
+
+        // Bounding Box Rectangle
+        overlayCtx.strokeStyle = primaryColor;
+        overlayCtx.lineWidth = isAlert ? 2.5 : 1.8;
+        overlayCtx.strokeRect(bx1, by1, bw, bh);
+
+        // Corner Cyber Brackets
+        const clen = Math.min(22, bw * 0.22, bh * 0.22);
+        overlayCtx.lineWidth = 3.5;
+        overlayCtx.strokeStyle = isAuth ? '#00e5ff' : isAlert ? '#ff1122' : '#00ffaa';
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(bx1, by1 + clen);
+        overlayCtx.lineTo(bx1, by1);
+        overlayCtx.lineTo(bx1 + clen, by1);
+        overlayCtx.stroke();
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(bx2 - clen, by1);
+        overlayCtx.lineTo(bx2, by1);
+        overlayCtx.lineTo(bx2, by1 + clen);
+        overlayCtx.stroke();
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(bx1, by2 - clen);
+        overlayCtx.lineTo(bx1, by2);
+        overlayCtx.lineTo(bx1 + clen, by2);
+        overlayCtx.stroke();
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(bx2 - clen, by2);
+        overlayCtx.lineTo(bx2, by2);
+        overlayCtx.lineTo(bx2, by2 - clen);
+        overlayCtx.stroke();
+
+        // Top Header Tag
+        const tagText = `[ID: 01 | PERSON] [CONF: 97.4%]`;
+        overlayCtx.font = 'bold 10px monospace';
+        const tagW = overlayCtx.measureText(tagText).width + 12;
+        overlayCtx.fillStyle = isAuth ? 'rgba(0, 50, 70, 0.9)' : isAlert ? 'rgba(100, 10, 10, 0.9)' : 'rgba(0, 40, 30, 0.9)';
+        overlayCtx.fillRect(bx1, by1 - 18, tagW, 18);
+        overlayCtx.strokeStyle = primaryColor;
+        overlayCtx.lineWidth = 1;
+        overlayCtx.strokeRect(bx1, by1 - 18, tagW, 18);
+        overlayCtx.fillStyle = primaryColor;
+        overlayCtx.fillText(tagText, bx1 + 6, by1 - 5);
+
+        // Bottom Movement Telemetry Bar
+        const barText = `V: ${this.currentVelocityMps}m/s | ${this.currentMovementVector} | ${this.currentPosture}`;
+        overlayCtx.font = '9px monospace';
+        const barW = overlayCtx.measureText(barText).width + 12;
+        overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        overlayCtx.fillRect(bx1, by2 + 2, barW, 16);
+        overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        overlayCtx.lineWidth = 0.8;
+        overlayCtx.strokeRect(bx1, by2 + 2, barW, 16);
+        overlayCtx.fillStyle = '#e2e8f0';
+        overlayCtx.fillText(barText, bx1 + 6, by2 + 13);
+      }
 
       overlayCtx.restore();
     }
 
-    // 4. Notify Parent Component with Real-Time Telemetry
-    if (this.onTelemetryCallback) {
-      this.onTelemetryCallback({
-        personInFrame,
-        trackedPersonsCount: personInFrame ? 1 : 0,
-        activePresenceSec: this.currentPresenceSec,
-        isInZone,
-        crossedTripwire,
-        fps: this.currentFps,
-        latencyMs: 14,
-        heldItems: [],
-        recognizedName: this.recognizedResidentName,
-        posture: this.currentPosture,
-        velocityMps: this.currentVelocityMps,
-        movementVector: this.currentMovementVector,
-        boundingBox: this.smoothedBox ? { ...this.smoothedBox } : undefined,
-      });
-    }
+    // Publish Real-Time Telemetry to React UI
+    this.onTelemetryCallback?.({
+      personInFrame,
+      trackedPersonsCount: personInFrame ? 1 : 0,
+      activePresenceSec: Math.round(this.currentPresenceSec * 10) / 10,
+      isInZone,
+      crossedTripwire,
+      fps: this.currentFps,
+      latencyMs: Math.round(performance.now() - this.lastTime),
+      heldItems: this.currentHeldItems,
+      recognizedName: this.recognizedResidentName,
+      posture: this.currentPosture,
+      velocityMps: this.currentVelocityMps,
+      movementVector: this.currentMovementVector,
+      boundingBox: this.smoothedBox || undefined,
+    });
   }
 }
 

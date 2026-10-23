@@ -117,10 +117,31 @@ export default function App() {
       if (res.ok) {
         const data: EnrolledFaceRecord[] = await res.json();
         setEnrolledFaces(data);
+        return;
       }
     } catch (err) {
       // Backend offline or starting
     }
+
+    // Standalone Web & GitHub Pages fallback: persist in localStorage
+    const saved = localStorage.getItem('sentinel_enrolled_faces');
+    if (saved) {
+      try {
+        setEnrolledFaces(JSON.parse(saved));
+        return;
+      } catch (e) {}
+    }
+    // Default authorized resident for quick hackathon testing
+    const defaultFaces: EnrolledFaceRecord[] = [
+      {
+        id: 'face-admin-01',
+        name: 'HIMANK (ADMIN)',
+        enrolled_at: 'Primary Resident Profile',
+        thumbnail_url: '',
+      },
+    ];
+    setEnrolledFaces(defaultFaces);
+    localStorage.setItem('sentinel_enrolled_faces', JSON.stringify(defaultFaces));
   };
 
   const pollBackend = async () => {
@@ -182,7 +203,11 @@ export default function App() {
         enrolled_at: new Date().toLocaleString(),
         thumbnail_url: '',
       };
-      setEnrolledFaces((prev) => [...prev, newFace]);
+      setEnrolledFaces((prev) => {
+        const updated = [...prev, newFace];
+        localStorage.setItem('sentinel_enrolled_faces', JSON.stringify(updated));
+        return updated;
+      });
       return true;
     }
   };
@@ -194,7 +219,11 @@ export default function App() {
       await pollBackend();
     } catch (e) {
       console.warn('Backend face delete fallback to local state:', e);
-      setEnrolledFaces((prev) => prev.filter((f) => f.id !== id));
+      setEnrolledFaces((prev) => {
+        const updated = prev.filter((f) => f.id !== id);
+        localStorage.setItem('sentinel_enrolled_faces', JSON.stringify(updated));
+        return updated;
+      });
     }
   };
 

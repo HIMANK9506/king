@@ -175,14 +175,20 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         videoRef.current,
         overlayCanvasRef.current,
         mode === 'ARMED' || mode === 'NIGHT_MODE',
-        enrolledFaces
+        enrolledFaces,
+        mirrorFeed
       );
     }
 
     return () => {
       browserTracker.stop();
     };
-  }, [activeCamId, useBrowserCam, activePermission, activeStream, mode, enrolledFaces]);
+  }, [activeCamId, useBrowserCam, activePermission, activeStream, mode, enrolledFaces, mirrorFeed]);
+
+  // Synchronize mirror state with tracker
+  useEffect(() => {
+    browserTracker.setMirrorFeed(mirrorFeed);
+  }, [mirrorFeed]);
 
   // Live CCTV OSD Clock & Bitrate fluctuation
   useEffect(() => {
