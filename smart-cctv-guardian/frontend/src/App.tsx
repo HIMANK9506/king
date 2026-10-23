@@ -25,11 +25,13 @@ import { X, ShieldAlert, Download, FlipHorizontal, Radio, Shield, LayoutGrid } f
 import { soundManager } from './utils/audio';
 import { getApiUrl } from './utils/api';
 import { useBrowserCamera } from './utils/useBrowserCamera';
+import { TrackerTelemetry } from './utils/browserTracker';
 
 export default function App() {
   const { permission: cameraPermission, stream: browserStream, requestCamera: requestBrowserCamera } = useBrowserCamera();
 
   const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [webTelemetry, setWebTelemetry] = useState<TrackerTelemetry | null>(null);
   const [mode, setMode] = useState<SystemMode>('ARMED');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([
     {
@@ -312,7 +314,30 @@ export default function App() {
     setRecordings((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const isBreached = status?.person_in_frame && (mode === 'ARMED' || mode === 'NIGHT_MODE');
+  const effectivePersonInFrame = status?.person_in_frame || webTelemetry?.personInFrame || false;
+  const effectivePresenceSec = Math.max(status?.active_presence_sec || 0, webTelemetry?.activePresenceSec || 0);
+  const effectivePersonsCount = status?.tracked_persons_count ?? (webTelemetry?.personInFrame ? 1 : 0);
+  const isBreached = effectivePersonInFrame && (mode === 'ARMED' || mode === 'NIGHT_MODE') && effectivePresenceSec >= 2.0;
+
+  const effectiveStatus: SystemStatus = {
+    mode,
+    camera_source: status?.camera_source || 'CAM 01 (Integrated Web AI)',
+    camera_name: status?.camera_name || 'Main Entrance',
+    is_connected: status?.is_connected ?? true,
+    fps: status?.fps || webTelemetry?.fps || 30,
+    inference_latency_ms: status?.inference_latency_ms || webTelemetry?.latencyMs || 14,
+    active_presence_sec: effectivePresenceSec,
+    person_in_frame: effectivePersonInFrame,
+    tracked_persons_count: effectivePersonsCount,
+    detected_held_items: status?.detected_held_items || [],
+    last_alert: status?.last_alert || (isBreached ? 'Zone Intrusion Active' : null),
+    email_alerts_enabled: status?.email_alerts_enabled || false,
+    mirror_feed: mirrorFeed,
+    rules: status?.rules,
+    authorized_faces_count: enrolledFaces.length,
+    recognized_person_name: status?.recognized_person_name || webTelemetry?.recognizedName || null,
+    cameras: status?.cameras || [],
+  };
 
   const activeCamInfo = status?.cameras?.find((c) => c.id === activeCamId);
   const activeCamName =
@@ -324,7 +349,7 @@ export default function App() {
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
       {isMobileViewMode ? (
         <MobileView
-          status={status}
+          status={effectiveStatus}
           mode={mode}
           onModeChange={handleModeChange}
           incidents={incidents}
@@ -376,7 +401,7 @@ export default function App() {
           <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 flex-1 flex flex-col gap-5">
             {/* Top Telemetry Metrics Bar */}
             <MetricsBar
-              status={status}
+              status={effectiveStatus}
               totalIncidents={incidents.length}
               onOpenFacesModal={() => setIsFacesOpen(true)}
             />
@@ -396,8 +421,8 @@ export default function App() {
                       setIsGridView(false);
                     }}
                     onExitGridView={() => setIsGridView(false)}
-                    personInFrame={status?.person_in_frame || false}
-                    activePresenceSec={status?.active_presence_sec || 0}
+                    personInFrame={effectivePersonInFrame}
+                    activePresenceSec={effectivePresenceSec}
                     isAlarmTriggered={!!isBreached}
                     browserStream={browserStream}
                     mirrorFeed={mirrorFeed}
@@ -409,9 +434,9 @@ export default function App() {
                       activeCamId={activeCamId}
                       activeCamName={activeCamName}
                       mode={mode}
-                      fps={activeCamId === 1 ? status?.fps || 30 : 15}
-                      activePresenceSec={activeCamId === 1 ? status?.active_presence_sec || 0 : 0}
-                      personInFrame={activeCamId === 1 ? status?.person_in_frame || false : false}
+                      fps={activeCamId === 1 ? effectiveStatus.fps : 15}
+                      activePresenceSec={activeCamId === 1 ? effectivePresenceSec : 0}
+                      personInFrame={activeCamId === 1 ? effectivePersonInFrame : false}
                       mirrorFeed={mirrorFeed}
                       onToggleMirror={handleToggleMirror}
                       onNewRecording={handleNewRecording}
@@ -422,6 +447,10 @@ export default function App() {
                       browserStream={browserStream}
                       cameraPermission={cameraPermission}
                       onRequestBrowserCamera={requestBrowserCamera}
+                      backendConnected={!!status?.is_connected}
+                      onTelemetryUpdate={(t) => setWebTelemetry(t)}
+                      onNewIncident={(inc) => setIncidents((prev) => [inc, ...prev])}
+                      recognizedPersonName={enrolledFaces[0]?.name || null}
                     />
 
                     {/* 2. Sub-Streams Row: v1, v2, v3 */}

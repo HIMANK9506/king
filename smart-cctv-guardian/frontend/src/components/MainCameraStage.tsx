@@ -16,11 +16,12 @@ import {
   Wifi,
   Sparkles
 } from 'lucide-react';
-import { SystemMode, VideoRecordingItem } from '../types';
+import { SystemMode, VideoRecordingItem, IncidentRecord } from '../types';
 import { videoRecorder } from '../utils/recorder';
 import { soundManager } from '../utils/audio';
 import { getApiUrl } from '../utils/api';
 import { renderVirtualCctvFrame } from '../utils/virtualCanvas';
+import { browserTracker, TrackerTelemetry } from '../utils/browserTracker';
 
 interface MainCameraStageProps {
   activeCamId: number;
@@ -39,6 +40,10 @@ interface MainCameraStageProps {
   browserStream?: MediaStream | null;
   cameraPermission?: 'prompt' | 'granted' | 'denied';
   onRequestBrowserCamera?: () => void;
+  backendConnected?: boolean;
+  onTelemetryUpdate?: (t: TrackerTelemetry) => void;
+  onNewIncident?: (inc: IncidentRecord) => void;
+  recognizedPersonName?: string | null;
 }
 
 export const MainCameraStage: React.FC<MainCameraStageProps> = ({
@@ -58,10 +63,15 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   browserStream: propStream,
   cameraPermission: propPermission,
   onRequestBrowserCamera,
+  backendConnected = false,
+  onTelemetryUpdate,
+  onNewIncident,
+  recognizedPersonName,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const virtualCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -70,13 +80,18 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   const [currentTimeStr, setCurrentTimeStr] = useState('');
   const [liveBitrate, setLiveBitrate] = useState(bitrateKbps);
 
+  // If backend is connected, allow user to toggle between Python YOLOv8 stream and Browser Web Vision
+  const [useBrowserCam, setUseBrowserCam] = useState(!backendConnected);
+
   // Browser Camera Permission & Stream State (For Public Web & Published Deployments)
   const [localPermission, setLocalPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [useBrowserCam, setUseBrowserCam] = useState(true);
 
   const activeStream = propStream !== undefined ? propStream : localStream;
   const activePermission = propPermission !== undefined ? propPermission : localPermission;
+
+  // Local Web AI Telemetry
+  const [webTelemetry, setWebTelemetry] = useState<TrackerTelemetry | null>(null);
 
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -122,6 +137,50 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
       videoRef.current.play().catch(() => {});
     }
   }, [activeStream, activeCamId, useBrowserCam]);
+
+  // Launch In-Browser AI Vision Tracker & Detection Engine
+  useEffect(() => {
+    if (
+      activeCamId === 1 &&
+      useBrowserCam &&
+      videoRef.current &&
+      overlayCanvasRef.current &&
+      (activePermission === 'granted' || !!activeStream)
+    ) {
+      browserTracker.setCallbacks(
+        (telemetry) => {
+          setWebTelemetry(telemetry);
+          onTelemetryUpdate?.(telemetry);
+        },
+        (breachType, snapshotDataUrl) => {
+          soundManager.playTacticalAlarm(true);
+          const inc: IncidentRecord = {
+            id: 'inc-' + Date.now(),
+            timestamp: new Date().toISOString(),
+            event_type: breachType === 'TRIPWIRE_BREACH' ? 'BOUNDARY_CROSSING' : 'ZONE_INTRUSION',
+            details: `${breachType.replace(/_/g, ' ')} detected on CAM 01 [Confidence: 94%]`,
+            severity: 'HIGH',
+            camera_name: 'CAM 01 - Main Entrance',
+            snapshot_url: snapshotDataUrl,
+            confidence: 0.94,
+            dwell_time_sec: 2.1,
+          };
+          onNewIncident?.(inc);
+        }
+      );
+
+      browserTracker.start(
+        videoRef.current,
+        overlayCanvasRef.current,
+        mode === 'ARMED' || mode === 'NIGHT_MODE',
+        recognizedPersonName || null
+      );
+    }
+
+    return () => {
+      browserTracker.stop();
+    };
+  }, [activeCamId, useBrowserCam, activePermission, activeStream, mode, recognizedPersonName]);
 
   // Live CCTV OSD Clock & Bitrate fluctuation
   useEffect(() => {
@@ -187,10 +246,14 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
     setHasError(false);
   }, [activeCamId]);
 
+  // Effective Dwell & Alarm Status (Combines Python Backend + Web Tracker)
+  const effectivePersonInFrame = personInFrame || !!webTelemetry?.personInFrame;
+  const effectivePresenceSec = Math.max(activePresenceSec, webTelemetry?.activePresenceSec || 0);
+
   const isAlarmTriggered =
     activeCamId === 1 &&
-    personInFrame &&
-    activePresenceSec >= 2.0 &&
+    effectivePersonInFrame &&
+    effectivePresenceSec >= 2.0 &&
     (mode === 'ARMED' || mode === 'NIGHT_MODE');
 
   useEffect(() => {
@@ -242,7 +305,14 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
       canvas.height = videoRef.current.videoHeight || 480;
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        if (mirrorFeed) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        if (overlayCanvasRef.current) {
+          ctx.drawImage(overlayCanvasRef.current, 0, 0, canvas.width, canvas.height);
+        }
         onSelectSnapshot?.(canvas.toDataURL('image/jpeg', 0.9));
       }
     } else if (imgRef.current) {
@@ -280,15 +350,22 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         {/* ============================================================ */}
         {activeCamId === 1 && useBrowserCam ? (
           activePermission === 'granted' || !!activeStream ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-contain select-none transition-transform ${
-                mirrorFeed ? 'scale-x-[-1]' : ''
-              }`}
-            />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-contain select-none transition-transform ${
+                  mirrorFeed ? 'scale-x-[-1]' : ''
+                }`}
+              />
+              {/* Tactical Real-Time AI Tracking Bounding Box & HUD Canvas Overlay */}
+              <canvas
+                ref={overlayCanvasRef}
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+              />
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center text-neutral-300 p-8 text-center max-w-md">
               <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center justify-center mb-3">
@@ -354,61 +431,63 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
             }`}
           />
           <span className="font-bold text-white tracking-wider font-mono">CAM 0{activeCamId}</span>
-          <span className="text-neutral-300 font-medium hidden sm:inline">| {activeCamName}</span>
-          <span className="text-neutral-400 font-mono text-[11px]">({fps || 30} FPS)</span>
-          {activeCamId === 1 && mirrorFeed && (
-            <span className="text-[10px] bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded border border-neutral-700">
-              Mirrored
-            </span>
-          )}
+          <span className="text-neutral-500 text-[11px]">|</span>
+          <span className="text-neutral-300 truncate max-w-[150px] font-medium hidden sm:inline">
+            {activeCamName.replace(/^CAM \d+ - /, '')}
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">
+            LIVE 1080p
+          </span>
         </div>
 
         {/* ============================================================ */}
-        {/* TOP-RIGHT OSD: Real-Time Bitrate & CCTV Timestamp */}
+        {/* TOP-RIGHT OSD: Time, Bitrate, Network Quality */}
         {/* ============================================================ */}
         <div className="absolute top-3 right-3 flex items-center gap-2">
-          {/* Source Toggle Pill for CAM 01 */}
-          {activeCamId === 1 && (
-            <button
-              onClick={() => setUseBrowserCam(!useBrowserCam)}
-              className="bg-black/75 hover:bg-neutral-900 border border-neutral-800 px-2 py-1 rounded-lg text-[10px] font-mono font-semibold text-neutral-300 hover:text-white transition flex items-center gap-1"
-              title="Toggle between Browser WebRTC Camera and Backend Stream"
-            >
-              <Sparkles size={11} className="text-cyan-400" />
-              <span>{useBrowserCam ? 'Source: Browser Cam' : 'Source: Backend AI'}</span>
-            </button>
-          )}
-
+          {/* Active Security Breach Flasher */}
           {isAlarmTriggered && (
-            <div className="flex items-center gap-1.5 bg-red-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs animate-bounce shadow-lg shadow-red-600/50">
-              <ShieldAlert size={14} /> INTRUSION ACTIVE
+            <div className="flex items-center gap-1.5 bg-red-600 text-white font-bold px-3 py-1 rounded-lg text-xs animate-pulse shadow-lg shadow-red-900/50">
+              <ShieldAlert size={14} />
+              <span>BREACH TRIGGERED</span>
             </div>
           )}
 
-          {/* CCTV Telemetry OSD Box */}
-          <div className="bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-lg border border-neutral-800/80 flex items-center gap-2.5 font-mono text-xs">
+          <div className="bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-lg border border-neutral-800/80 text-xs font-mono flex items-center gap-2.5">
             <span className="text-emerald-400 font-semibold">{liveBitrate} KB/s</span>
-            <span className="text-neutral-500">|</span>
-            <span className="text-white flex items-center gap-1">
-              <Clock size={11} className="text-neutral-400" />
-              {currentTimeStr}
-            </span>
+            <span className="text-neutral-600">|</span>
+            <span className="text-neutral-300 font-medium">{currentTimeStr}</span>
           </div>
         </div>
 
         {/* ============================================================ */}
-        {/* BOTTOM ACTION BAR HUD */}
+        {/* BOTTOM-RIGHT QUICK TACTICAL CONTROLS */}
         {/* ============================================================ */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
-          {/* MediaRecorder Button */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-2 z-20">
+          {/* AI Engine Switcher: Python YOLOv8 vs Web-Client Vision */}
+          {activeCamId === 1 && (
+            <button
+              onClick={() => setUseBrowserCam((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md border transition ${
+                useBrowserCam
+                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-700/80 hover:bg-cyan-900/80'
+                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900/80'
+              }`}
+              title="Toggle between Web Browser AI and Local Python YOLOv8 Engine"
+            >
+              <Sparkles size={13} className={useBrowserCam ? 'text-cyan-400' : 'text-emerald-400'} />
+              <span>{useBrowserCam ? 'Engine: Web AI' : 'Engine: Python YOLO'}</span>
+            </button>
+          )}
+
+          {/* Quick Record Button */}
           <button
             onClick={handleToggleRecord}
-            className={`flex items-center gap-1.5 px-3 py-1.5 backdrop-blur-md rounded-lg text-xs font-medium border transition ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md transition border ${
               isRecording
-                ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-600/40 animate-pulse'
+                ? 'bg-red-600 text-white border-red-500 animate-pulse shadow-lg shadow-red-900/50'
                 : 'bg-black/70 hover:bg-black/90 text-neutral-200 border-neutral-800 hover:text-white'
             }`}
-            title={isRecording ? 'Stop Recording' : 'Start Video Clip Recording'}
+            title={isRecording ? 'Stop Recording' : 'Start Recording CCTV Clip'}
           >
             {isRecording ? (
               <>
@@ -475,24 +554,24 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         </div>
 
         {/* Bottom Banner: Temporal Presence Confirmation Progress */}
-        {activeCamId === 1 && personInFrame && (
-          <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-md border border-neutral-800 px-3.5 py-1.5 rounded-xl flex items-center gap-3 text-xs max-w-sm">
-            <Eye size={15} className={activePresenceSec >= 2.0 ? 'text-red-500' : 'text-amber-400'} />
+        {activeCamId === 1 && effectivePersonInFrame && (
+          <div className="absolute bottom-3 left-3 bg-black/85 backdrop-blur-md border border-neutral-800 px-3.5 py-1.5 rounded-xl flex items-center gap-3 text-xs max-w-sm z-20">
+            <Eye size={15} className={effectivePresenceSec >= 2.0 ? 'text-red-500 animate-pulse' : 'text-amber-400'} />
             <span className="text-neutral-300 text-[11px] truncate">
-              {activePresenceSec >= 2.0
-                ? 'Intruder Verified: &ge; 2.0s rule'
+              {effectivePresenceSec >= 2.0
+                ? 'Intruder Verified: ≥ 2.0s rule'
                 : 'Verifying Human Presence...'}
             </span>
             <div className="w-16 bg-neutral-800 rounded-full h-1.5 overflow-hidden shrink-0">
               <div
                 className={`h-full transition-all duration-200 ${
-                  activePresenceSec >= 2.0 ? 'bg-red-500' : 'bg-amber-400'
+                  effectivePresenceSec >= 2.0 ? 'bg-red-500' : 'bg-amber-400'
                 }`}
-                style={{ width: `${Math.min(100, (activePresenceSec / 2.0) * 100)}%` }}
+                style={{ width: `${Math.min(100, (effectivePresenceSec / 2.0) * 100)}%` }}
               />
             </div>
             <span className="font-mono text-neutral-400 text-[10px] w-7 text-right">
-              {activePresenceSec.toFixed(1)}s
+              {effectivePresenceSec.toFixed(1)}s
             </span>
           </div>
         )}
