@@ -1,5 +1,8 @@
 # 🛡️ Smart CCTV Guardian — AI 4-Channel NVR & Threat Suppression System
 
+> 📖 **Complete Documentation & Architecture Handbook:**  
+> For an exhaustive, feature-by-feature explanation, threat detection state machines, spatial tripwire algorithms, face whitelist pipelines, and deployment guides, check out [**SMART_CCTV_GUARDIAN_HANDBOOK.md**](SMART_CCTV_GUARDIAN_HANDBOOK.md).
+
 An edge-native, real-time AI security surveillance station built with **FastAPI**, **Ultralytics YOLOv8 Tracking & Pose**, **YuNet/SFace Face Recognition**, **OpenCV**, and a tactical **React (Vite) + Tailwind CSS** dashboard.
 
 Designed to operate in **3 distinct deployment modes**:
