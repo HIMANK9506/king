@@ -451,6 +451,7 @@ export default function App() {
                       onTelemetryUpdate={(t) => setWebTelemetry(t)}
                       onNewIncident={(inc) => setIncidents((prev) => [inc, ...prev])}
                       recognizedPersonName={enrolledFaces[0]?.name || null}
+                      enrolledFaces={enrolledFaces}
                     />
 
                     {/* 2. Sub-Streams Row: v1, v2, v3 */}

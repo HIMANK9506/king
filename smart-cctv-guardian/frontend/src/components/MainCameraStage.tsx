@@ -44,6 +44,7 @@ interface MainCameraStageProps {
   onTelemetryUpdate?: (t: TrackerTelemetry) => void;
   onNewIncident?: (inc: IncidentRecord) => void;
   recognizedPersonName?: string | null;
+  enrolledFaces?: Array<{ id: string; name: string }>;
 }
 
 export const MainCameraStage: React.FC<MainCameraStageProps> = ({
@@ -67,6 +68,7 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   onTelemetryUpdate,
   onNewIncident,
   recognizedPersonName,
+  enrolledFaces = [],
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -173,14 +175,14 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
         videoRef.current,
         overlayCanvasRef.current,
         mode === 'ARMED' || mode === 'NIGHT_MODE',
-        recognizedPersonName || null
+        enrolledFaces
       );
     }
 
     return () => {
       browserTracker.stop();
     };
-  }, [activeCamId, useBrowserCam, activePermission, activeStream, mode, recognizedPersonName]);
+  }, [activeCamId, useBrowserCam, activePermission, activeStream, mode, enrolledFaces]);
 
   // Live CCTV OSD Clock & Bitrate fluctuation
   useEffect(() => {
