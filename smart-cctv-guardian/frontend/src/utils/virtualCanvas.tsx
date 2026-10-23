@@ -146,7 +146,7 @@ export function renderVirtualCctvFrame(
 
     ctx.fillStyle = '#8caaa0';
     ctx.font = '10px monospace';
-    ctx.fillText('IR NIGHT VISION | 1080p', 12, h - 12);
+    ctx.fillText('IR NIGHT VISION | 1080p [SIMULATED]', 12, h - 12);
 
     ctx.fillStyle = '#00e678';
     ctx.fillText('STATUS: SECURE', w - 120, h - 12);
@@ -191,7 +191,7 @@ export function renderVirtualCctvFrame(
 
     ctx.fillStyle = '#9696a0';
     ctx.font = '10px monospace';
-    ctx.fillText('WIDE-ANGLE 140° | 1080p', 12, h - 12);
+    ctx.fillText('WIDE-ANGLE 140° | 1080p [SIMULATED]', 12, h - 12);
 
     ctx.fillStyle = '#00e678';
     ctx.fillText('STATUS: MONITORING', w - 140, h - 12);
@@ -234,7 +234,7 @@ export function renderVirtualCctvFrame(
 
     ctx.fillStyle = '#9696a0';
     ctx.font = '10px monospace';
-    ctx.fillText('VEHICLE AI SCAN | 1080p', 12, h - 12);
+    ctx.fillText('VEHICLE AI SCAN | 1080p [SIMULATED]', 12, h - 12);
 
     ctx.fillStyle = '#00e678';
     ctx.fillText('STATUS: SECURE', w - 120, h - 12);

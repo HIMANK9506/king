@@ -78,11 +78,12 @@ export const Header: React.FC<HeaderProps> = ({
               {isConnected ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                  ONLINE
+                  BACKEND ONLINE
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded-full">
-                  CONNECTING
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-300 bg-cyan-950/70 border border-cyan-800/80 px-2.5 py-0.5 rounded-full" title="Running in-browser TensorFlow.js MoveNet Neural AI (Python Backend Offline)">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  STANDALONE WEB AI
                 </span>
               )}
             </div>

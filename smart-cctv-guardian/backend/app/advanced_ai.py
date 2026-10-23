@@ -162,16 +162,47 @@ class FaceRecognitionManager:
     """
     AI Face Recognition with YuNet (Detector) and SFace (128-d Feature Extractor).
     Maintains an authorized whitelist database to distinguish Authorized Residents from Unknown Intruders.
+    Includes auto-provisioning and graceful offline fallback.
     """
+    YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+    SFACE_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+
     def __init__(self):
+        os.makedirs(MODELS_DIR, exist_ok=True)
         yunet_path = os.path.join(MODELS_DIR, "yunet.onnx")
         sface_path = os.path.join(MODELS_DIR, "sface.onnx")
 
-        print(f"[FaceRecognition] Initializing YuNet ({yunet_path}) and SFace ({sface_path})...")
-        self.detector = cv2.FaceDetectorYN.create(yunet_path, "", (320, 320), 0.65, 0.3)
-        self.recognizer = cv2.FaceRecognizerSF.create(sface_path, "")
+        # Auto-provision models if missing
+        self._ensure_model(yunet_path, self.YUNET_URL, "YuNet Face Detector")
+        self._ensure_model(sface_path, self.SFACE_URL, "SFace Face Recognizer")
+
+        self.available = False
+        self.detector = None
+        self.recognizer = None
         self.enrolled_faces: List[dict] = []
-        self._load_enrolled_faces()
+
+        if os.path.exists(yunet_path) and os.path.exists(sface_path):
+            try:
+                print(f"[FaceRecognition] Initializing YuNet ({yunet_path}) and SFace ({sface_path})...")
+                self.detector = cv2.FaceDetectorYN.create(yunet_path, "", (320, 320), 0.65, 0.3)
+                self.recognizer = cv2.FaceRecognizerSF.create(sface_path, "")
+                self.available = True
+                self._load_enrolled_faces()
+            except Exception as e:
+                print(f"[FaceRecognition] Warning: Could not initialize OpenCV Face models: {e}. Fallback enabled.")
+                self.available = False
+        else:
+            print("[FaceRecognition] Models missing and download skipped. Face recognition disabled, standard YOLO active.")
+
+    def _ensure_model(self, path: str, url: str, name: str):
+        if not os.path.exists(path):
+            print(f"[FaceRecognition] {name} model not found at {path}. Attempting download...")
+            try:
+                import urllib.request
+                urllib.request.urlretrieve(url, path)
+                print(f"[FaceRecognition] Successfully downloaded {name} to {path}.")
+            except Exception as e:
+                print(f"[FaceRecognition] Could not auto-download {name}: {e}")
 
     def _load_enrolled_faces(self):
         """Loads saved face whitelist embeddings from JSON."""
@@ -195,6 +226,9 @@ class FaceRecognitionManager:
         """
         Enrolls a new authorized face from the current frame.
         """
+        if not self.available or self.detector is None or self.recognizer is None:
+            return None
+
         h, w, _ = frame.shape
         self.detector.setInputSize((w, h))
         _, faces = self.detector.detect(frame)
@@ -272,7 +306,7 @@ class FaceRecognitionManager:
         Detects faces in frame and compares them against the authorized whitelist.
         Returns matched identity and authorization status.
         """
-        if not self.enrolled_faces:
+        if not self.available or self.detector is None or self.recognizer is None or not self.enrolled_faces:
             return []
 
         h, w, _ = frame.shape
