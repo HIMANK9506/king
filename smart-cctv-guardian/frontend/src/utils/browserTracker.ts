@@ -68,10 +68,14 @@ export class BrowserTrackerEngine {
   private recognizedResidentName: string | null = null;
   private isFaceAuthorized: boolean = false;
 
-  // Configuration
-  public restrictedZone = { x1: 0.2, y1: 0.25, x2: 0.8, y2: 0.85 }; // Normalized 0..1
-  public tripwireY = 0.65; // Horizontal tripwire at 65% height
-  public loiteringThresholdSec = 2.0;
+  // False Alarm Prevention Filters
+  private prevCenterY: number | null = null;
+  private consecutiveDetectionFrames: number = 0;
+
+  // Configuration (Calibrated to Prevent False Alarms)
+  public restrictedZone = { x1: 0.65, y1: 0.15, x2: 0.95, y2: 0.75 }; // Secure Entry Sector (Perimeter Right)
+  public tripwireY = 0.82; // Tripwire at floor boundary (82% height)
+  public loiteringThresholdSec = 6.0; // Requires 6.0s continuous unauthorized presence
   public mirrorFeed: boolean = false;
 
   private onTelemetryCallback?: (telemetry: TrackerTelemetry) => void;
@@ -396,10 +400,18 @@ export class BrowserTrackerEngine {
         isInZone = true;
       }
 
-      // Tripwire Crossing Check
-      if (this.smoothedBox.y2 / h >= this.tripwireY) {
-        crossedTripwire = true;
+      // Tripwire Crossing Check (True directional transit filter)
+      if (this.prevCenterY !== null) {
+        const prevNormY = this.prevCenterY / h;
+        const currNormY = cy / h;
+        if (
+          (prevNormY < this.tripwireY && currNormY >= this.tripwireY) ||
+          (prevNormY > this.tripwireY && currNormY <= this.tripwireY)
+        ) {
+          crossedTripwire = true;
+        }
       }
+      this.prevCenterY = cy;
 
       // Real-Time Biometric Face Recognition Match
       if (enrolledFaces && enrolledFaces.length > 0) {
@@ -410,12 +422,20 @@ export class BrowserTrackerEngine {
         this.recognizedResidentName = null;
       }
 
-      // Presence & Dwell Accumulator
-      if (this.presenceStartTime === null) {
-        this.presenceStartTime = performance.now();
+      // Presence & Zone Dwell Accumulator (Only accumulates while inside restricted zone!)
+      this.consecutiveDetectionFrames++;
+      if (isInZone && this.consecutiveDetectionFrames >= 6) {
+        if (this.presenceStartTime === null) {
+          this.presenceStartTime = performance.now();
+        }
+        this.currentPresenceSec = (performance.now() - this.presenceStartTime) / 1000;
+      } else {
+        this.presenceStartTime = null;
+        this.currentPresenceSec = 0;
       }
-      this.currentPresenceSec = (performance.now() - this.presenceStartTime) / 1000;
     } else {
+      this.consecutiveDetectionFrames = 0;
+      this.prevCenterY = null;
       this.presenceStartTime = null;
       this.currentPresenceSec = 0;
       this.smoothedBox = null;
@@ -428,12 +448,12 @@ export class BrowserTrackerEngine {
       this.currentHeldItems = [];
     }
 
-    // Security Alarm Breach Trigger (Suppressed for Authorized Residents)
+    // Security Alarm Breach Trigger (Strict False-Alarm Suppression)
     const isBreached =
       personInFrame &&
       isArmed &&
       !this.isFaceAuthorized &&
-      (this.currentPresenceSec >= this.loiteringThresholdSec || crossedTripwire);
+      ((isInZone && this.currentPresenceSec >= this.loiteringThresholdSec) || crossedTripwire);
 
     if (isBreached && !this.isAlarmFiredForCurrentBreach) {
       this.isAlarmFiredForCurrentBreach = true;

@@ -255,13 +255,17 @@ export const MainCameraStage: React.FC<MainCameraStageProps> = ({
   }, [activeCamId]);
 
   // Effective Dwell & Alarm Status (Combines Python Backend + Web Tracker)
+  const isAuthorizedResident = !!webTelemetry?.recognizedName || !!recognizedPersonName;
   const effectivePersonInFrame = personInFrame || !!webTelemetry?.personInFrame;
   const effectivePresenceSec = Math.max(activePresenceSec, webTelemetry?.activePresenceSec || 0);
 
+  // False Alarm Filter: Only trigger siren if NOT authorized resident, inside zone, and lingering >= 6.0s
   const isAlarmTriggered =
     activeCamId === 1 &&
     effectivePersonInFrame &&
-    effectivePresenceSec >= 2.0 &&
+    !isAuthorizedResident &&
+    (webTelemetry?.isInZone || false) &&
+    effectivePresenceSec >= 6.0 &&
     (mode === 'ARMED' || mode === 'NIGHT_MODE');
 
   useEffect(() => {

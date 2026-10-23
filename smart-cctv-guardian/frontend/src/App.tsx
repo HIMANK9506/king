@@ -32,42 +32,8 @@ export default function App() {
 
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [webTelemetry, setWebTelemetry] = useState<TrackerTelemetry | null>(null);
-  const [mode, setMode] = useState<SystemMode>('ARMED');
-  const [incidents, setIncidents] = useState<IncidentRecord[]>([
-    {
-      id: 'demo-inc-1',
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      event_type: 'ZONE_INTRUSION',
-      details: 'Unidentified subject verified in Front Gate Zone > 2.0s',
-      severity: 'HIGH',
-      camera_name: 'CAM 01 - Main Entrance',
-      confidence: 0.94,
-      dwell_time_sec: 3.2,
-      snapshot_url: '/snapshot/latest.jpg',
-    },
-    {
-      id: 'demo-inc-2',
-      timestamp: new Date(Date.now() - 7200000).toISOString(),
-      event_type: 'BOUNDARY_CROSSING',
-      details: 'Perimeter tripwire crossed: Vector Inward',
-      severity: 'MEDIUM',
-      camera_name: 'CAM 02 - Backyard Perimeter',
-      confidence: 0.88,
-      dwell_time_sec: 1.5,
-      snapshot_url: '/snapshot/latest.jpg',
-    },
-    {
-      id: 'demo-inc-3',
-      timestamp: new Date(Date.now() - 10800000).toISOString(),
-      event_type: 'UNKNOWN_INTRUDER',
-      details: 'Non-whitelisted visitor loitering near entryway',
-      severity: 'INFO',
-      camera_name: 'CAM 03 - Front Porch',
-      confidence: 0.85,
-      dwell_time_sec: 4.1,
-      snapshot_url: '/snapshot/latest.jpg',
-    },
-  ]);
+  const [mode, setMode] = useState<SystemMode>('DISARMED');
+  const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
   const [recordings, setRecordings] = useState<VideoRecordingItem[]>([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const [selectedRecording, setSelectedRecording] = useState<VideoRecordingItem | null>(null);
@@ -335,6 +301,10 @@ export default function App() {
     }
   };
 
+  const handleClearIncidents = () => {
+    setIncidents([]);
+  };
+
   const handleNewRecording = (item: VideoRecordingItem) => {
     setRecordings((prev) => [item, ...prev]);
   };
@@ -346,7 +316,13 @@ export default function App() {
   const effectivePersonInFrame = status?.person_in_frame || webTelemetry?.personInFrame || false;
   const effectivePresenceSec = Math.max(status?.active_presence_sec || 0, webTelemetry?.activePresenceSec || 0);
   const effectivePersonsCount = status?.tracked_persons_count ?? (webTelemetry?.personInFrame ? 1 : 0);
-  const isBreached = effectivePersonInFrame && (mode === 'ARMED' || mode === 'NIGHT_MODE') && effectivePresenceSec >= 2.0;
+  const isAuthorizedResident = !!webTelemetry?.recognizedName || !!status?.recognized_person_name;
+  const isBreached =
+    effectivePersonInFrame &&
+    !isAuthorizedResident &&
+    (webTelemetry?.isInZone || false) &&
+    (mode === 'ARMED' || mode === 'NIGHT_MODE') &&
+    effectivePresenceSec >= 6.0;
 
   const effectiveStatus: SystemStatus = {
     mode,
@@ -392,6 +368,7 @@ export default function App() {
           onDeleteRecording={handleDeleteRecording}
           onTriggerTestAlert={handleTriggerTestAlert}
           isTriggeringTest={isTriggeringTest}
+          onClearIncidents={handleClearIncidents}
           onOpenConnectModal={() => setIsConnectModalOpen(true)}
           onOpenFacesModal={() => setIsFacesOpen(true)}
           onSaveRules={handleSaveRules}
@@ -537,6 +514,7 @@ export default function App() {
                   onModeChange={handleModeChange}
                   authorizedFacesCount={enrolledFaces.length}
                   onOpenFacesModal={() => setIsFacesOpen(true)}
+                  onClearIncidents={handleClearIncidents}
                 />
               </div>
             </div>

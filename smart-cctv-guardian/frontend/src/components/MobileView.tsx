@@ -57,6 +57,7 @@ interface MobileViewProps {
   browserStream?: MediaStream | null;
   cameraPermission?: 'prompt' | 'granted' | 'denied';
   onRequestBrowserCamera?: () => void;
+  onClearIncidents?: () => void;
 }
 
 const MobileCamCardItem: React.FC<{
@@ -253,6 +254,7 @@ export const MobileView: React.FC<MobileViewProps> = ({
   browserStream,
   cameraPermission,
   onRequestBrowserCamera,
+  onClearIncidents,
 }) => {
   const [mobileTab, setMobileTab] = useState<'DEVICES' | 'ALERTS' | 'CONNECT' | 'RULES'>('DEVICES');
   const [activeCamFilter, setActiveCamFilter] = useState<number | 'ALL'>('ALL');
@@ -474,13 +476,24 @@ export const MobileView: React.FC<MobileViewProps> = ({
               <span className="font-bold text-xs uppercase tracking-wider text-white">
                 Live Security Threat Stream
               </span>
-              <button
-                onClick={() => onTriggerTestAlert('ZONE_INTRUSION')}
-                disabled={isTriggeringTest}
-                className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold border border-neutral-700"
-              >
-                {isTriggeringTest ? 'Simulating...' : 'Test Alert'}
-              </button>
+              <div className="flex items-center gap-1.5">
+                {incidents.length > 0 && onClearIncidents && (
+                  <button
+                    onClick={onClearIncidents}
+                    className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-red-400 rounded-lg text-xs font-semibold border border-neutral-800 flex items-center gap-1 transition"
+                  >
+                    <Trash2 size={12} />
+                    <span>Clear</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => onTriggerTestAlert('ZONE_INTRUSION')}
+                  disabled={isTriggeringTest}
+                  className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold border border-neutral-700"
+                >
+                  {isTriggeringTest ? 'Simulating...' : 'Test Alert'}
+                </button>
+              </div>
             </div>
 
             {incidents.length === 0 ? (

@@ -42,6 +42,7 @@ interface RightStationProps {
   onModeChange: (mode: SystemMode) => void;
   authorizedFacesCount: number;
   onOpenFacesModal: () => void;
+  onClearIncidents?: () => void;
 }
 
 export const RightStation: React.FC<RightStationProps> = ({
@@ -58,6 +59,7 @@ export const RightStation: React.FC<RightStationProps> = ({
   onModeChange,
   authorizedFacesCount,
   onOpenFacesModal,
+  onClearIncidents,
 }) => {
   const [logFilter, setLogFilter] = useState<string>('ALL');
   const [mediaTab, setMediaTab] = useState<'SNAPSHOTS' | 'CLIPS'>('SNAPSHOTS');
@@ -163,15 +165,27 @@ export const RightStation: React.FC<RightStationProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={() => onTriggerTestAlert('ZONE_INTRUSION')}
-            disabled={isTriggeringTest}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-neutral-200 rounded-lg text-xs font-medium transition border border-neutral-700"
-            title="Simulate intrusion event"
-          >
-            <Zap size={12} className="text-amber-400" />
-            <span>{isTriggeringTest ? 'Capturing...' : 'Test Alert'}</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {incidents.length > 0 && onClearIncidents && (
+              <button
+                onClick={onClearIncidents}
+                className="flex items-center gap-1 px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-red-400 rounded-lg text-xs font-medium transition border border-neutral-800"
+                title="Clear all alerts"
+              >
+                <Trash2 size={12} />
+                <span>Clear</span>
+              </button>
+            )}
+            <button
+              onClick={() => onTriggerTestAlert('ZONE_INTRUSION')}
+              disabled={isTriggeringTest}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-neutral-200 rounded-lg text-xs font-medium transition border border-neutral-700"
+              title="Simulate intrusion event"
+            >
+              <Zap size={12} className="text-amber-400" />
+              <span>{isTriggeringTest ? 'Capturing...' : 'Test Alert'}</span>
+            </button>
+          </div>
         </div>
 
         {/* LOGs Filter Pills */}

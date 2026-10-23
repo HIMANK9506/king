@@ -14,6 +14,15 @@ export function getApiBase(): string {
 }
 
 export function getApiUrl(path: string): string {
+  if (!path) return '';
+  if (
+    path.startsWith('data:') ||
+    path.startsWith('blob:') ||
+    path.startsWith('http://') ||
+    path.startsWith('https://')
+  ) {
+    return path;
+  }
   const base = getApiBase();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${base}${cleanPath}`;
